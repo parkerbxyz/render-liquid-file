@@ -1,0 +1,26 @@
+---
+name: "Render liquid file"
+description: "Renders liquid files"
+inputs:
+  extname:
+    description: "used for layouts/includes"
+    required: false
+    default: ""
+  root:
+    description: "root files for `.render()` and `.parse()`"
+    required: true
+  layouts:
+    description: "layout files for `{% layout %}`"
+    required: true
+  partials:
+    description: "partial files for `{% render %}`"
+    required: true
+  file:
+    description: "The name of the file to render"
+    required: true
+outputs:
+  rendered-content:
+    description: "The content of the rendered file"
+runs:
+  using: "node16"
+  main: "index.js"
