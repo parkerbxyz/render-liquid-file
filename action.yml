@@ -22,5 +22,5 @@ outputs:
   rendered-content:
     description: "The content of the rendered file"
 runs:
-  using: "node16"
+  using: "node20"
   main: "index.js"
