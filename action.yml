@@ -1,6 +1,6 @@
 ---
-name: "Render liquid file"
-description: "Renders liquid files"
+name: "Render Liquid File"
+description: "Renders a liquid file"
 inputs:
   extname:
     description: "used for layouts/includes"
