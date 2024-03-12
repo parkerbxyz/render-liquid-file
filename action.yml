@@ -1,6 +1,9 @@
 ---
 name: "Render Liquid File"
 description: "Renders a liquid file"
+branding:
+  icon: 'file-text'
+  color: 'green'
 inputs:
   extname:
     description: "used for layouts/includes"
