@@ -26,4 +26,4 @@ outputs:
     description: "The content of the rendered file"
 runs:
   using: "node20"
-  main: "dist/index.js"
+  main: "index.js"

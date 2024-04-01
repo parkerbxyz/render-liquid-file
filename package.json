@@ -6,7 +6,6 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "ncc build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
@@ -17,8 +16,5 @@
   "prettier": {
     "semi": false,
     "singleQuote": true
-  },
-  "devDependencies": {
-    "@vercel/ncc": "^0.38.1"
   }
 }
