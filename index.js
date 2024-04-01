@@ -17,7 +17,7 @@ try {
     layouts: LAYOUTS, // layout files for `{% layout %}`
     partials: PARTIALS, // partial files for `{% render %}`
     greedy: false, // don't trim all whitespace regardless of breaks
-    trimTagLeft: true // strip blank characters from the left of tags
+    trimTagLeft: true, // strip blank characters from the left of tags
   })
 
   // Render the file
