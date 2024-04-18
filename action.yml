@@ -13,8 +13,7 @@ inputs:
     description: "root files for `.render()` and `.parse()`"
     required: true
   layouts:
-    description: "layout files for `{% layout %}`"
-    required: true
+    description: 'layout files for `{% layout %}`'
   partials:
     description: "partial files for `{% render %}`"
     required: true

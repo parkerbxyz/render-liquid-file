@@ -6,8 +6,8 @@ try {
   // Input defined in action metadata file
   const EXTNAME = getInput('extname')
   const ROOT = getInput('root')
-  const LAYOUTS = getInput('layouts')
   const PARTIALS = getInput('partials')
+  const LAYOUTS = getInput('layouts') || undefined
   const FILE = getInput('file')
 
   // Liquidjs engine
