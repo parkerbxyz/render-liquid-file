@@ -1,7 +1,7 @@
 {
   "name": "render-liquid-file",
   "description": "Renders a liquid file",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "Parker Brown",
   "license": "MIT",
   "type": "module",
