@@ -1,29 +1,25 @@
 ---
-name: "Render Liquid File"
-description: "Renders a liquid file"
+name: 'Render Liquid File'
+description: 'Renders a liquid file'
 branding:
   icon: 'file-text'
   color: 'green'
 inputs:
   extname:
-    description: "used for layouts/includes"
-    required: false
-    default: ""
+    description: 'used for layouts/includes'
   root:
-    description: "root files for `.render()` and `.parse()`"
+    description: 'root files for `.render()` and `.parse()`'
     required: true
   layouts:
-    description: "layout files for `{% layout %}`"
-    required: true
+    description: 'layout files for `{% layout %}`'
   partials:
-    description: "partial files for `{% render %}`"
-    required: true
+    description: 'partial files for `{% render %}`'
   file:
-    description: "The name of the file to render"
+    description: 'The name of the file to render'
     required: true
 outputs:
   rendered-content:
-    description: "The content of the rendered file"
+    description: 'The content of the rendered file'
 runs:
-  using: "node20"
-  main: "dist/index.js"
+  using: 'node20'
+  main: 'dist/index.js'
