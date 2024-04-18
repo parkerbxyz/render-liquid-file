@@ -4,7 +4,7 @@ import { context } from '@actions/github'
 
 try {
   // Input defined in action metadata file
-  const EXTNAME = getInput('extname')
+  const EXTNAME = getInput('extname') || undefined
   const ROOT = getInput('root')
   const LAYOUTS = getInput('layouts') || undefined
   const PARTIALS = getInput('partials') || undefined

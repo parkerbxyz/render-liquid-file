@@ -6,9 +6,7 @@ branding:
   color: 'green'
 inputs:
   extname:
-    description: "used for layouts/includes"
-    required: false
-    default: ""
+    description: 'used for layouts/includes'
   root:
     description: "root files for `.render()` and `.parse()`"
     required: true
