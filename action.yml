@@ -15,8 +15,7 @@ inputs:
   layouts:
     description: 'layout files for `{% layout %}`'
   partials:
-    description: "partial files for `{% render %}`"
-    required: true
+    description: 'partial files for `{% render %}`'
   file:
     description: "The name of the file to render"
     required: true
