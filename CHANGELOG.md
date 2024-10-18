@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.3](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.2...v1.1.3) (2024-10-18)
+
+
+### Bug Fixes
+
+* **deps:** bump @actions/core from 1.10.1 to 1.11.1 ([#22](https://github.com/parkerbxyz/render-liquid-file/issues/22)) ([ef1143d](https://github.com/parkerbxyz/render-liquid-file/commit/ef1143dd604032217bde0f769b8bf86506f1f2c4))
+* **deps:** bump liquidjs from 10.16.7 to 10.18.0 ([#21](https://github.com/parkerbxyz/render-liquid-file/issues/21)) ([a10bd62](https://github.com/parkerbxyz/render-liquid-file/commit/a10bd62bb6630c8eb64bd3988f3c3080262c6838))
+
 ## [1.1.2](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.1...v1.1.2) (2024-09-04)
 
 
