@@ -12,7 +12,7 @@
   "dependencies": {
     "@actions/core": "^1.11.1",
     "@actions/github": "^6.0.0",
-    "liquidjs": "^10.18.0"
+    "liquidjs": "^10.21.1"
   },
   "prettier": {
     "semi": false,
