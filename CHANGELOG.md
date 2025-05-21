@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.4](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.3...v1.1.4) (2025-05-21)
+
+
+### Bug Fixes
+
+* **deps:** bump @actions/github from 6.0.0 to 6.0.1 ([#31](https://github.com/parkerbxyz/render-liquid-file/issues/31)) ([467f31e](https://github.com/parkerbxyz/render-liquid-file/commit/467f31e57e00d75e8c54fccd1678bfedda03078e))
+* **deps:** bump liquidjs from 10.18.0 to 10.21.1 ([#30](https://github.com/parkerbxyz/render-liquid-file/issues/30)) ([ae54176](https://github.com/parkerbxyz/render-liquid-file/commit/ae54176376c4b95ca1f1ff3e628ab33e9e4fe730))
+* **deps:** bump undici from 5.28.4 to 5.28.5 in the npm_and_yarn group ([#28](https://github.com/parkerbxyz/render-liquid-file/issues/28)) ([2e2f911](https://github.com/parkerbxyz/render-liquid-file/commit/2e2f911f909c639985d1114086c44c063fc763d9))
+* **deps:** bump undici in the npm_and_yarn group across 1 directory ([#34](https://github.com/parkerbxyz/render-liquid-file/issues/34)) ([e79d3c0](https://github.com/parkerbxyz/render-liquid-file/commit/e79d3c0119c10b67e71a44a04194bb24eacb0291))
+
 ## [1.1.3](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.2...v1.1.3) (2024-10-18)
 
 
