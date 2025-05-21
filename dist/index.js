@@ -1871,6 +1871,7 @@ class Context {
         this.action = process.env.GITHUB_ACTION;
         this.actor = process.env.GITHUB_ACTOR;
         this.job = process.env.GITHUB_JOB;
+        this.runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10);
         this.runNumber = parseInt(process.env.GITHUB_RUN_NUMBER, 10);
         this.runId = parseInt(process.env.GITHUB_RUN_ID, 10);
         this.apiUrl = (_a = process.env.GITHUB_API_URL) !== null && _a !== void 0 ? _a : `https://api.github.com`;
@@ -3714,7 +3715,7 @@ module.exports = __toCommonJS(dist_src_exports);
 var import_universal_user_agent = __nccwpck_require__(3843);
 
 // pkg/dist-src/version.js
-var VERSION = "9.0.5";
+var VERSION = "9.0.6";
 
 // pkg/dist-src/defaults.js
 var userAgent = `octokit-endpoint.js/${VERSION} ${(0, import_universal_user_agent.getUserAgent)()}`;
@@ -3819,9 +3820,9 @@ function addQueryParameters(url, parameters) {
 }
 
 // pkg/dist-src/util/extract-url-variable-names.js
-var urlVariableRegex = /\{[^}]+\}/g;
+var urlVariableRegex = /\{[^{}}]+\}/g;
 function removeNonChars(variableName) {
-  return variableName.replace(/^\W+|\W+$/g, "").split(/,/);
+  return variableName.replace(/(?:^\W+)|(?:(?<!\W)\W+$)/g, "").split(/,/);
 }
 function extractUrlVariableNames(url) {
   const matches = url.match(urlVariableRegex);
@@ -4007,7 +4008,7 @@ function parse(options) {
     }
     if (url.endsWith("/graphql")) {
       if (options.mediaType.previews?.length) {
-        const previewsFromAcceptHeader = headers.accept.match(/[\w-]+(?=-preview)/g) || [];
+        const previewsFromAcceptHeader = headers.accept.match(/(?<![\w-])[\w-]+(?=-preview)/g) || [];
         headers.accept = previewsFromAcceptHeader.concat(options.mediaType.previews).map((preview) => {
           const format = options.mediaType.format ? `.${options.mediaType.format}` : "+json";
           return `application/vnd.github.${preview}-preview${format}`;
@@ -4254,7 +4255,7 @@ __export(dist_src_exports, {
 module.exports = __toCommonJS(dist_src_exports);
 
 // pkg/dist-src/version.js
-var VERSION = "9.2.1";
+var VERSION = "9.2.2";
 
 // pkg/dist-src/normalize-paginated-list-response.js
 function normalizePaginatedListResponse(response) {
@@ -4302,7 +4303,7 @@ function iterator(octokit, route, parameters) {
           const response = await requestMethod({ method, url, headers });
           const normalizedResponse = normalizePaginatedListResponse(response);
           url = ((normalizedResponse.headers.link || "").match(
-            /<([^>]+)>;\s*rel="next"/
+            /<([^<>]+)>;\s*rel="next"/
           ) || [])[1];
           return { value: normalizedResponse };
         } catch (error) {
@@ -6852,7 +6853,7 @@ var RequestError = class extends Error {
     if (options.request.headers.authorization) {
       requestCopy.headers = Object.assign({}, options.request.headers, {
         authorization: options.request.headers.authorization.replace(
-          / .*$/,
+          /(?<! ) .*$/,
           " [REDACTED]"
         )
       });
@@ -6919,7 +6920,7 @@ var import_endpoint = __nccwpck_require__(4471);
 var import_universal_user_agent = __nccwpck_require__(3843);
 
 // pkg/dist-src/version.js
-var VERSION = "8.4.0";
+var VERSION = "8.4.1";
 
 // pkg/dist-src/is-plain-object.js
 function isPlainObject(value) {
@@ -6978,7 +6979,7 @@ function fetchWrapper(requestOptions) {
       headers[keyAndValue[0]] = keyAndValue[1];
     }
     if ("deprecation" in headers) {
-      const matches = headers.link && headers.link.match(/<([^>]+)>; rel="deprecation"/);
+      const matches = headers.link && headers.link.match(/<([^<>]+)>; rel="deprecation"/);
       const deprecationLink = matches && matches.pop();
       log.warn(
         `[@octokit/request] "${requestOptions.method} ${requestOptions.url}" is deprecated. It is scheduled to be removed on ${headers.sunset}${deprecationLink ? `. See ${deprecationLink}` : ""}`
@@ -7329,8 +7330,8 @@ exports.Deprecation = Deprecation;
 
 var __webpack_unused_export__;
 /*
- * liquidjs@10.18.0, https://github.com/harttle/liquidjs
- * (c) 2016-2024 harttle
+ * liquidjs@10.21.1, https://github.com/harttle/liquidjs
+ * (c) 2016-2025 harttle
  * Released under the MIT License.
  */
 
@@ -7458,6 +7459,9 @@ function isArray(value) {
     // be compatible with IE 8
     return toString$1.call(value) === '[object Array]';
 }
+function isArrayLike(value) {
+    return value && isNumber(value.length);
+}
 function isIterable(value) {
     return isObject(value) && Symbol.iterator in value;
 }
@@ -7543,6 +7547,17 @@ function argumentsToValue(fn) {
 }
 function escapeRegExp(text) {
     return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+}
+/** Return an array containing unique elements from _array_. Works with nested arrays and objects. */
+function* strictUniq(array) {
+    const seen = new Set();
+    for (const element of array) {
+        const key = JSON.stringify(element);
+        if (!seen.has(key)) {
+            seen.add(key);
+            yield element;
+        }
+    }
 }
 
 /**
@@ -7743,6 +7758,9 @@ class EmptyDrop extends Drop {
     valueOf() {
         return '';
     }
+    static is(value) {
+        return value instanceof EmptyDrop;
+    }
 }
 
 class BlankDrop extends EmptyDrop {
@@ -7754,6 +7772,9 @@ class BlankDrop extends EmptyDrop {
         if (isString(value))
             return /^\s*$/.test(value);
         return super.equals(value);
+    }
+    static is(value) {
+        return value instanceof BlankDrop;
     }
 }
 
@@ -7790,6 +7811,50 @@ class ForloopDrop extends Drop {
     }
 }
 
+class SimpleEmitter {
+    constructor() {
+        this.buffer = '';
+    }
+    write(html) {
+        this.buffer += stringify(html);
+    }
+}
+
+class StreamedEmitter {
+    constructor() {
+        this.buffer = '';
+        this.stream = new stream.PassThrough();
+    }
+    write(html) {
+        this.stream.write(stringify(html));
+    }
+    error(err) {
+        this.stream.emit('error', err);
+    }
+    end() {
+        this.stream.end();
+    }
+}
+
+class KeepingTypeEmitter {
+    constructor() {
+        this.buffer = '';
+    }
+    write(html) {
+        html = toValue(html);
+        // This will only preserve the type if the value is isolated.
+        // I.E:
+        // {{ my-port }} -> 42
+        // {{ my-host }}:{{ my-port }} -> 'host:42'
+        if (typeof html !== 'string' && this.buffer === '') {
+            this.buffer = html;
+        }
+        else {
+            this.buffer = stringify(this.buffer) + stringify(html);
+        }
+    }
+}
+
 class BlockDrop extends Drop {
     constructor(
     // the block render from layout template
@@ -7801,8 +7866,10 @@ class BlockDrop extends Drop {
      * Provide parent access in child block by
      * {{ block.super }}
      */
-    super() {
-        return this.superBlockRender();
+    *super() {
+        const emitter = new SimpleEmitter();
+        yield this.superBlockRender(emitter);
+        return emitter.buffer;
     }
 }
 
@@ -8041,7 +8108,11 @@ function getDateTimeFormat() {
 
 // one minute in milliseconds
 const OneMinute = 60000;
-const ISO8601_TIMEZONE_PATTERN = /([zZ]|([+-])(\d{2}):(\d{2}))$/;
+/**
+ * Need support both ISO8601 and RFC2822 as in major browsers & NodeJS
+ * RFC2822: https://datatracker.ietf.org/doc/html/rfc2822#section-3.3
+ */
+const TIMEZONE_PATTERN = /([zZ]|([+-])(\d{2}):?(\d{2}))$/;
 const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
     'September', 'October', 'November', 'December'
@@ -8154,7 +8225,7 @@ class LiquidDate {
      * Given that a template is expected to be parsed fewer times than rendered.
      */
     static createDateFixedToTimezone(dateString, locale) {
-        const m = dateString.match(ISO8601_TIMEZONE_PATTERN);
+        const m = dateString.match(TIMEZONE_PATTERN);
         // representing a UTC timestamp
         if (m && m[1] === 'Z') {
             return new LiquidDate(+new Date(dateString), locale, 0);
@@ -8224,9 +8295,7 @@ class TagToken extends DelimitedToken {
         this.name = this.tokenizer.readTagName();
         this.tokenizer.assert(this.name, `illegal tag syntax, tag name expected`);
         this.tokenizer.skipBlank();
-    }
-    get args() {
-        return this.tokenizer.input.slice(this.tokenizer.p, this.contentRange[1]);
+        this.args = this.tokenizer.input.slice(this.tokenizer.p, this.contentRange[1]);
     }
 }
 
@@ -8440,7 +8509,9 @@ class LiquidTagToken extends DelimitedToken {
         this.name = this.tokenizer.readTagName();
         this.tokenizer.assert(this.name, 'illegal liquid tag syntax');
         this.tokenizer.skipBlank();
-        this.args = this.tokenizer.remaining();
+    }
+    get args() {
+        return this.tokenizer.input.slice(this.tokenizer.p, this.contentRange[1]);
     }
 }
 
@@ -8470,50 +8541,6 @@ function getPerformance() {
         polyfill;
 }
 
-class SimpleEmitter {
-    constructor() {
-        this.buffer = '';
-    }
-    write(html) {
-        this.buffer += stringify(html);
-    }
-}
-
-class StreamedEmitter {
-    constructor() {
-        this.buffer = '';
-        this.stream = new stream.PassThrough();
-    }
-    write(html) {
-        this.stream.write(stringify(html));
-    }
-    error(err) {
-        this.stream.emit('error', err);
-    }
-    end() {
-        this.stream.end();
-    }
-}
-
-class KeepingTypeEmitter {
-    constructor() {
-        this.buffer = '';
-    }
-    write(html) {
-        html = toValue(html);
-        // This will only preserve the type if the value is isolated.
-        // I.E:
-        // {{ my-port }} -> 42
-        // {{ my-host }}:{{ my-port }} -> 'host:42'
-        if (typeof html !== 'string' && this.buffer === '') {
-            this.buffer = html;
-        }
-        else {
-            this.buffer = stringify(this.buffer) + stringify(html);
-        }
-    }
-}
-
 class Render {
     renderTemplatesToNodeStream(templates, ctx) {
         const emitter = new StreamedEmitter();
@@ -8533,7 +8560,7 @@ class Render {
                 const html = yield tpl.render(ctx, emitter);
                 // if not, it'll return an `html`, write to the emitter for it
                 html && emitter.write(html);
-                if (emitter['break'] || emitter['continue'])
+                if (ctx.breakCalled || ctx.continueCalled)
                     break;
             }
             catch (e) {
@@ -8617,6 +8644,7 @@ function evalQuotedToken(token) {
 function* evalRangeToken(token, ctx) {
     const low = yield evalToken(token.lhs, ctx);
     const high = yield evalToken(token.rhs, ctx);
+    ctx.memoryLimit.use(high - low + 1);
     return range(+low, +high + 1);
 }
 function* toPostfix(tokens) {
@@ -8708,6 +8736,9 @@ function arrayEquals(lhs, rhs) {
     if (lhs.length !== rhs.length)
         return false;
     return !lhs.some((value, i) => !equals(value, rhs[i]));
+}
+function arrayIncludes(arr, item) {
+    return arr.some(value => equals(value, item));
 }
 
 class Node {
@@ -9468,9 +9499,11 @@ class Tokenizer {
             return;
         ++this.p;
         const lhs = this.readValueOrThrow();
-        this.p += 2;
+        this.skipBlank();
+        this.assert(this.read() === '.' && this.read() === '.', 'invalid range syntax');
         const rhs = this.readValueOrThrow();
-        ++this.p;
+        this.skipBlank();
+        this.assert(this.read() === ')', 'invalid range syntax');
         return new RangeToken(this.input, begin, this.p, lhs, rhs, this.file);
     }
     readValueOrThrow() {
@@ -9594,9 +9627,9 @@ class Tag extends TemplateImpl {
  *    hash['reversed'] === undefined
  */
 class Hash {
-    constructor(markup, jekyllStyle) {
+    constructor(input, jekyllStyle) {
         this.hash = {};
-        const tokenizer = new Tokenizer(markup, {});
+        const tokenizer = input instanceof Tokenizer ? input : new Tokenizer(input, {});
         for (const hash of tokenizer.readHashes(jekyllStyle)) {
             this.hash[hash.name.content] = hash.value;
         }
@@ -9695,6 +9728,9 @@ class Output extends TemplateImpl {
         const val = yield this.value.value(ctx, false);
         emitter.write(val);
     }
+    *arguments() {
+        yield this.value;
+    }
 }
 
 class HTML extends TemplateImpl {
@@ -9705,6 +9741,335 @@ class HTML extends TemplateImpl {
     *render(ctx, emitter) {
         emitter.write(this.str);
     }
+}
+
+/**
+ * A variable's segments and location, which can be coerced to a string.
+ */
+class Variable {
+    constructor(segments, location) {
+        this.segments = segments;
+        this.location = location;
+    }
+    toString() {
+        return segmentsString(this.segments, true);
+    }
+    /** Return this variable's segments as an array, possibly with nested arrays for nested paths. */
+    toArray() {
+        function* _visit(...segments) {
+            for (const segment of segments) {
+                if (segment instanceof Variable) {
+                    yield Array.from(_visit(...segment.segments));
+                }
+                else {
+                    yield segment;
+                }
+            }
+        }
+        return Array.from(_visit(...this.segments));
+    }
+}
+/**
+ * Group variables by the string representation of their root segment.
+ */
+class VariableMap {
+    constructor() {
+        this.map = new Map();
+    }
+    get(key) {
+        const k = segmentsString([key.segments[0]]);
+        if (!this.map.has(k)) {
+            this.map.set(k, []);
+        }
+        return this.map.get(k);
+    }
+    has(key) {
+        return this.map.has(segmentsString([key.segments[0]]));
+    }
+    push(variable) {
+        this.get(variable).push(variable);
+    }
+    asObject() {
+        return Object.fromEntries(this.map);
+    }
+}
+const defaultStaticAnalysisOptions = {
+    partials: true
+};
+function* _analyze(templates, partials, sync) {
+    const variables = new VariableMap();
+    const globals = new VariableMap();
+    const locals = new VariableMap();
+    const rootScope = new DummyScope(new Set());
+    // Names of partial templates that we've already analyzed.
+    const seen = new Set();
+    function updateVariables(variable, scope) {
+        variables.push(variable);
+        const aliased = scope.alias(variable);
+        if (aliased !== undefined) {
+            const root = aliased.segments[0];
+            // TODO: What if a a template renders a rendered template? Do we need scope.parent?
+            if (isString(root) && !rootScope.has(root)) {
+                globals.push(aliased);
+            }
+        }
+        else {
+            const root = variable.segments[0];
+            if (isString(root) && !scope.has(root)) {
+                globals.push(variable);
+            }
+        }
+        // Recurse for nested Variables
+        for (const segment of variable.segments) {
+            if (segment instanceof Variable) {
+                updateVariables(segment, scope);
+            }
+        }
+    }
+    function* visit(template, scope) {
+        if (template.arguments) {
+            for (const arg of template.arguments()) {
+                for (const variable of extractVariables(arg)) {
+                    updateVariables(variable, scope);
+                }
+            }
+        }
+        if (template.localScope) {
+            for (const ident of template.localScope()) {
+                scope.add(ident.content);
+                scope.deleteAlias(ident.content);
+                const [row, col] = ident.getPosition();
+                locals.push(new Variable([ident.content], { row, col, file: ident.file }));
+            }
+        }
+        if (template.children) {
+            if (template.partialScope) {
+                const partial = template.partialScope();
+                if (partial === undefined) {
+                    // Layouts, for example, can have children that are not partials.
+                    for (const child of (yield template.children(partials, sync))) {
+                        yield visit(child, scope);
+                    }
+                    return;
+                }
+                if (seen.has(partial.name))
+                    return;
+                const partialScopeNames = new Set();
+                const partialScope = partial.isolated
+                    ? new DummyScope(partialScopeNames)
+                    : scope.push(partialScopeNames);
+                for (const name of partial.scope) {
+                    if (isString(name)) {
+                        partialScopeNames.add(name);
+                    }
+                    else {
+                        const [alias, argument] = name;
+                        partialScopeNames.add(alias);
+                        const variables = Array.from(extractVariables(argument));
+                        if (variables.length) {
+                            partialScope.setAlias(alias, variables[0].segments);
+                        }
+                    }
+                }
+                for (const child of (yield template.children(partials, sync))) {
+                    yield visit(child, partialScope);
+                    seen.add(partial.name);
+                }
+                partialScope.pop();
+            }
+            else {
+                if (template.blockScope) {
+                    scope.push(new Set(template.blockScope()));
+                }
+                for (const child of (yield template.children(partials, sync))) {
+                    yield visit(child, scope);
+                }
+                if (template.blockScope) {
+                    scope.pop();
+                }
+            }
+        }
+    }
+    for (const template of templates) {
+        yield visit(template, rootScope);
+    }
+    return {
+        variables: variables.asObject(),
+        globals: globals.asObject(),
+        locals: locals.asObject()
+    };
+}
+/**
+ * Statically analyze a template and report variable usage.
+ */
+function analyze(template, options = {}) {
+    const opts = { ...defaultStaticAnalysisOptions, ...options };
+    return toPromise(_analyze(template, opts.partials, false));
+}
+/**
+ * Statically analyze a template and report variable usage.
+ */
+function analyzeSync(template, options = {}) {
+    const opts = { ...defaultStaticAnalysisOptions, ...options };
+    return toValueSync(_analyze(template, opts.partials, true));
+}
+/**
+ * A stack to manage scopes while traversing templates during static analysis.
+ */
+class DummyScope {
+    constructor(globals) {
+        this.stack = [{ names: globals, aliases: new Map() }];
+    }
+    /** Return true if `name` is in scope.  */
+    has(name) {
+        for (const scope of this.stack) {
+            if (scope.names.has(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    push(scope) {
+        this.stack.push({ names: scope, aliases: new Map() });
+        return this;
+    }
+    pop() {
+        return this.stack.pop()?.names;
+    }
+    // Add a name to the template scope.
+    add(name) {
+        this.stack[0].names.add(name);
+    }
+    /** Return the variable that `variable` aliases, or `variable` if it doesn't alias anything. */
+    alias(variable) {
+        const root = variable.segments[0];
+        if (!isString(root))
+            return undefined;
+        const alias = this.getAlias(root);
+        if (alias === undefined)
+            return undefined;
+        return new Variable([...alias, ...variable.segments.slice(1)], variable.location);
+    }
+    // TODO: `from` could be a path with multiple segments, like `include.x`.
+    setAlias(from, to) {
+        this.stack[this.stack.length - 1].aliases.set(from, to);
+    }
+    deleteAlias(name) {
+        this.stack[this.stack.length - 1].aliases.delete(name);
+    }
+    getAlias(name) {
+        for (const scope of this.stack) {
+            if (scope.aliases.has(name)) {
+                return scope.aliases.get(name);
+            }
+            // If a scope has defined `name`, then it masks aliases in parent scopes.
+            if (scope.names.has(name)) {
+                return undefined;
+            }
+        }
+        return undefined;
+    }
+}
+function* extractVariables(value) {
+    if (isValueToken(value)) {
+        yield* extractValueTokenVariables(value);
+    }
+    else if (value instanceof Value) {
+        yield* extractFilteredValueVariables(value);
+    }
+}
+function* extractFilteredValueVariables(value) {
+    for (const token of value.initial.postfix) {
+        if (isValueToken(token)) {
+            yield* extractValueTokenVariables(token);
+        }
+    }
+    for (const filter of value.filters) {
+        for (const arg of filter.args) {
+            if (isKeyValuePair(arg) && arg[1]) {
+                yield* extractValueTokenVariables(arg[1]);
+            }
+            else if (isValueToken(arg)) {
+                yield* extractValueTokenVariables(arg);
+            }
+        }
+    }
+}
+function* extractValueTokenVariables(token) {
+    if (isRangeToken(token)) {
+        yield* extractValueTokenVariables(token.lhs);
+        yield* extractValueTokenVariables(token.rhs);
+    }
+    else if (isPropertyAccessToken(token)) {
+        yield extractPropertyAccessVariable(token);
+    }
+}
+function extractPropertyAccessVariable(token) {
+    const segments = [];
+    // token is not guaranteed to have `file` set. We'll try to get it from a prop if not.
+    let file = token.file;
+    // Here we're flattening the first segment of a path if it is a nested path.
+    const root = token.props[0];
+    file = file || root.file;
+    if (isQuotedToken(root) || isNumberToken(root) || isWordToken(root)) {
+        segments.push(root.content);
+    }
+    else if (isPropertyAccessToken(root)) {
+        // Flatten paths that start with a nested path.
+        segments.push(...extractPropertyAccessVariable(root).segments);
+    }
+    for (const prop of token.props.slice(1)) {
+        file = file || prop.file;
+        if (isQuotedToken(prop) || isNumberToken(prop) || isWordToken(prop)) {
+            segments.push(prop.content);
+        }
+        else if (isPropertyAccessToken(prop)) {
+            segments.push(extractPropertyAccessVariable(prop));
+        }
+    }
+    const [row, col] = token.getPosition();
+    return new Variable(segments, {
+        row,
+        col,
+        file
+    });
+}
+// This is used to detect segments that can be represented with dot notation
+// when creating a string representation of VariableSegments.
+const RE_PROPERTY = /^[\u0080-\uFFFFa-zA-Z_][\u0080-\uFFFFa-zA-Z0-9_-]*$/;
+/**
+ * Return a string representation of segments using dot notation where possible.
+ * @param segments - The property names and array indices that make up a path to a variable.
+ * @param bracketedRoot - If false (the default), don't surround the root segment with square brackets.
+ */
+function segmentsString(segments, bracketedRoot = false) {
+    const buf = [];
+    const root = segments[0];
+    if (isString(root)) {
+        if (!bracketedRoot || root.match(RE_PROPERTY)) {
+            buf.push(`${root}`);
+        }
+        else {
+            buf.push(`['${root}']`);
+        }
+    }
+    for (const segment of segments.slice(1)) {
+        if (segment instanceof Variable) {
+            buf.push(`[${segmentsString(segment.segments)}]`);
+        }
+        else if (isString(segment)) {
+            if (segment.match(RE_PROPERTY)) {
+                buf.push(`.${segment}`);
+            }
+            else {
+                buf.push(`['${segment}']`);
+            }
+        }
+        else {
+            buf.push(`[${segment}]`);
+        }
+    }
+    return buf.join('');
 }
 
 var LookupType;
@@ -9905,6 +10270,10 @@ function isWordToken(val) {
 function isRangeToken(val) {
     return getKind(val) === exports.Yp.Range;
 }
+function isValueToken(val) {
+    // valueTokenBitMask = TokenKind.Number | TokenKind.Literal | TokenKind.Quoted | TokenKind.PropertyAccess | TokenKind.Range
+    return (getKind(val) & 1667) > 0;
+}
 function getKind(val) {
     return val ? val.kind : -1;
 }
@@ -9921,7 +10290,8 @@ var typeGuards = /*#__PURE__*/Object.freeze({
   isNumberToken: isNumberToken,
   isPropertyAccessToken: isPropertyAccessToken,
   isWordToken: isWordToken,
-  isRangeToken: isRangeToken
+  isRangeToken: isRangeToken,
+  isValueToken: isValueToken
 });
 
 /******************************************************************************
@@ -9958,6 +10328,8 @@ class Context {
          */
         this.scopes = [{}];
         this.registers = {};
+        this.breakCalled = false;
+        this.continueCalled = false;
         this.sync = !!renderOptions.sync;
         this.opts = opts;
         this.globals = renderOptions.globals ?? opts.globals;
@@ -9993,7 +10365,7 @@ class Context {
         return toValueSync(this._get(paths));
     }
     *_get(paths) {
-        const scope = this.findScope(paths[0]);
+        const scope = this.findScope(paths[0]); // first prop should always be a string
         return yield this._getFromScope(scope, paths);
     }
     /**
@@ -10045,6 +10417,7 @@ class Context {
 }
 function readProperty(obj, key, ownPropertyOnly) {
     obj = toLiquid(obj);
+    key = toValue(key);
     if (isNil(obj))
         return obj;
     if (isArray(obj) && key < 0)
@@ -10192,8 +10565,8 @@ const join = argumentsToValue(function (v, arg) {
     this.context.memoryLimit.use(complexity);
     return array.join(sep);
 });
-const last$1 = argumentsToValue((v) => isArray(v) ? last(v) : '');
-const first = argumentsToValue((v) => isArray(v) ? v[0] : '');
+const last$1 = argumentsToValue((v) => isArrayLike(v) ? last(v) : '');
+const first = argumentsToValue((v) => isArrayLike(v) ? v[0] : '');
 const reverse = argumentsToValue(function (v) {
     const array = toArray(v);
     this.context.memoryLimit.use(array.length);
@@ -10286,7 +10659,18 @@ function slice(v, begin, length = 1) {
     this.context.memoryLimit.use(length);
     return v.slice(begin, begin + length);
 }
-function* where(arr, property, expected) {
+function expectedMatcher(expected) {
+    if (this.context.opts.jekyllWhere) {
+        return (v) => EmptyDrop.is(expected) ? equals(v, expected) : (isArray(v) ? arrayIncludes(v, expected) : equals(v, expected));
+    }
+    else if (expected === undefined) {
+        return (v) => isTruthy(v, this.context);
+    }
+    else {
+        return (v) => equals(v, expected);
+    }
+}
+function* filter(include, arr, property, expected) {
     const values = [];
     arr = toArray(arr);
     this.context.memoryLimit.use(arr.length);
@@ -10294,27 +10678,38 @@ function* where(arr, property, expected) {
     for (const item of arr) {
         values.push(yield evalToken(token, this.context.spawn(item)));
     }
-    return arr.filter((_, i) => {
-        if (expected === undefined)
-            return isTruthy(values[i], this.context);
-        return equals(values[i], expected);
-    });
+    const matcher = expectedMatcher.call(this, expected);
+    return arr.filter((_, i) => matcher(values[i]) === include);
 }
-function* where_exp(arr, itemName, exp) {
+function* filter_exp(include, arr, itemName, exp) {
     const filtered = [];
     const keyTemplate = new Value(stringify(exp), this.liquid);
     const array = toArray(arr);
     this.context.memoryLimit.use(array.length);
     for (const item of array) {
-        const value = yield keyTemplate.value(this.context.spawn({ [itemName]: item }));
-        if (value)
+        this.context.push({ [itemName]: item });
+        const value = yield keyTemplate.value(this.context);
+        this.context.pop();
+        if (value === include)
             filtered.push(item);
     }
     return filtered;
 }
+function* where(arr, property, expected) {
+    return yield* filter.call(this, true, arr, property, expected);
+}
+function* reject(arr, property, expected) {
+    return yield* filter.call(this, false, arr, property, expected);
+}
+function* where_exp(arr, itemName, exp) {
+    return yield* filter_exp.call(this, true, arr, itemName, exp);
+}
+function* reject_exp(arr, itemName, exp) {
+    return yield* filter_exp.call(this, false, arr, itemName, exp);
+}
 function* group_by(arr, property) {
     const map = new Map();
-    arr = toArray(arr);
+    arr = toEnumerable(arr);
     const token = new Tokenizer(stringify(property)).readScopeValue();
     this.context.memoryLimit.use(arr.length);
     for (const item of arr) {
@@ -10328,33 +10723,62 @@ function* group_by(arr, property) {
 function* group_by_exp(arr, itemName, exp) {
     const map = new Map();
     const keyTemplate = new Value(stringify(exp), this.liquid);
-    arr = toArray(arr);
+    arr = toEnumerable(arr);
     this.context.memoryLimit.use(arr.length);
     for (const item of arr) {
-        const key = yield keyTemplate.value(this.context.spawn({ [itemName]: item }));
+        this.context.push({ [itemName]: item });
+        const key = yield keyTemplate.value(this.context);
+        this.context.pop();
         if (!map.has(key))
             map.set(key, []);
         map.get(key).push(item);
     }
     return [...map.entries()].map(([name, items]) => ({ name, items }));
 }
-function* find(arr, property, expected) {
+function* search(arr, property, expected) {
     const token = new Tokenizer(stringify(property)).readScopeValue();
     const array = toArray(arr);
-    for (const item of array) {
-        const value = yield evalToken(token, this.context.spawn(item));
-        if (equals(value, expected))
-            return item;
+    const matcher = expectedMatcher.call(this, expected);
+    for (let index = 0; index < array.length; index++) {
+        const value = yield evalToken(token, this.context.spawn(array[index]));
+        if (matcher(value))
+            return [index, array[index]];
     }
 }
-function* find_exp(arr, itemName, exp) {
+function* search_exp(arr, itemName, exp) {
     const predicate = new Value(stringify(exp), this.liquid);
     const array = toArray(arr);
-    for (const item of array) {
-        const value = yield predicate.value(this.context.spawn({ [itemName]: item }));
+    for (let index = 0; index < array.length; index++) {
+        this.context.push({ [itemName]: array[index] });
+        const value = yield predicate.value(this.context);
+        this.context.pop();
         if (value)
-            return item;
+            return [index, array[index]];
     }
+}
+function* has(arr, property, expected) {
+    const result = yield* search.call(this, arr, property, expected);
+    return !!result;
+}
+function* has_exp(arr, itemName, exp) {
+    const result = yield* search_exp.call(this, arr, itemName, exp);
+    return !!result;
+}
+function* find_index(arr, property, expected) {
+    const result = yield* search.call(this, arr, property, expected);
+    return result ? result[0] : undefined;
+}
+function* find_index_exp(arr, itemName, exp) {
+    const result = yield* search_exp.call(this, arr, itemName, exp);
+    return result ? result[0] : undefined;
+}
+function* find(arr, property, expected) {
+    const result = yield* search.call(this, arr, property, expected);
+    return result ? result[1] : undefined;
+}
+function* find_exp(arr, itemName, exp) {
+    const result = yield* search_exp.call(this, arr, itemName, exp);
+    return result ? result[1] : undefined;
 }
 function uniq(arr) {
     arr = toArray(arr);
@@ -10393,9 +10817,15 @@ var arrayFilters = /*#__PURE__*/Object.freeze({
   shift: shift,
   slice: slice,
   where: where,
+  reject: reject,
   where_exp: where_exp,
+  reject_exp: reject_exp,
   group_by: group_by,
   group_by_exp: group_by_exp,
+  has: has,
+  has_exp: has_exp,
+  find_index: find_index,
+  find_index_exp: find_index_exp,
   find: find,
   find_exp: find_exp,
   uniq: uniq,
@@ -10688,7 +11118,8 @@ const filters = {
 class AssignTag extends Tag {
     constructor(token, remainTokens, liquid) {
         super(token, remainTokens, liquid);
-        this.key = this.tokenizer.readIdentifier().content;
+        this.identifier = this.tokenizer.readIdentifier();
+        this.key = this.identifier.content;
         this.tokenizer.assert(this.key, 'expected variable name');
         this.tokenizer.skipBlank();
         this.tokenizer.assert(this.tokenizer.peek() === '=', 'expected "="');
@@ -10697,6 +11128,12 @@ class AssignTag extends Tag {
     }
     *render(ctx) {
         ctx.bottom()[this.key] = yield this.value.value(ctx, this.liquid.options.lenientIf);
+    }
+    *arguments() {
+        yield this.value;
+    }
+    *localScope() {
+        yield this.identifier;
     }
 }
 
@@ -10712,7 +11149,7 @@ class ForTag extends Tag {
         }
         this.variable = variable.content;
         this.collection = collection;
-        this.hash = new Hash(this.tokenizer.remaining(), liquid.options.keyValueSeparator);
+        this.hash = new Hash(this.tokenizer, liquid.options.keyValueSeparator);
         this.templates = [];
         this.elseTemplates = [];
         let p;
@@ -10750,15 +11187,32 @@ class ForTag extends Tag {
         ctx.push(scope);
         for (const item of collection) {
             scope[this.variable] = item;
+            ctx.continueCalled = ctx.breakCalled = false;
             yield r.renderTemplates(this.templates, ctx, emitter);
-            if (emitter['break']) {
-                emitter['break'] = false;
+            if (ctx.breakCalled)
                 break;
-            }
-            emitter['continue'] = false;
             scope.forloop.next();
         }
+        ctx.continueCalled = ctx.breakCalled = false;
         ctx.pop();
+    }
+    *children() {
+        const templates = this.templates.slice();
+        if (this.elseTemplates) {
+            templates.push(...this.elseTemplates);
+        }
+        return templates;
+    }
+    *arguments() {
+        yield this.collection;
+        for (const v of Object.values(this.hash.hash)) {
+            if (isValueToken(v)) {
+                yield v;
+            }
+        }
+    }
+    blockScope() {
+        return [this.variable, 'forloop'];
     }
 }
 function reversed(arr) {
@@ -10775,7 +11229,8 @@ class CaptureTag extends Tag {
     constructor(tagToken, remainTokens, liquid, parser) {
         super(tagToken, remainTokens, liquid);
         this.templates = [];
-        this.variable = this.readVariableName();
+        this.identifier = this.readVariable();
+        this.variable = this.identifier.content;
         while (remainTokens.length) {
             const token = remainTokens.shift();
             if (isTagToken(token) && token.name === 'endcapture')
@@ -10784,19 +11239,25 @@ class CaptureTag extends Tag {
         }
         throw new Error(`tag ${tagToken.getText()} not closed`);
     }
+    readVariable() {
+        let ident = this.tokenizer.readIdentifier();
+        if (ident.content)
+            return ident;
+        ident = this.tokenizer.readQuoted();
+        if (ident)
+            return ident;
+        throw this.tokenizer.error('invalid capture name');
+    }
     *render(ctx) {
         const r = this.liquid.renderer;
         const html = yield r.renderTemplates(this.templates, ctx);
         ctx.bottom()[this.variable] = html;
     }
-    readVariableName() {
-        const word = this.tokenizer.readIdentifier().content;
-        if (word)
-            return word;
-        const quoted = this.tokenizer.readQuoted();
-        if (quoted)
-            return evalQuotedToken(quoted);
-        throw this.tokenizer.error('invalid capture name');
+    *children() {
+        return this.templates;
+    }
+    *localScope() {
+        yield this.identifier;
     }
 }
 
@@ -10864,6 +11325,17 @@ class CaseTag extends Tag {
             yield r.renderTemplates(this.elseTemplates, ctx, emitter);
         }
     }
+    *arguments() {
+        yield this.value;
+        yield* this.branches.flatMap(b => b.values);
+    }
+    *children() {
+        const templates = this.branches.flatMap(b => b.templates);
+        if (this.elseTemplates) {
+            templates.push(...this.elseTemplates);
+        }
+        return templates;
+    }
 }
 
 class CommentTag extends Tag {
@@ -10917,7 +11389,7 @@ class RenderTag extends Tag {
             tokenizer.p = begin;
             break;
         }
-        this.hash = new Hash(tokenizer.remaining(), liquid.options.keyValueSeparator);
+        this.hash = new Hash(tokenizer, liquid.options.keyValueSeparator);
     }
     *render(ctx, emitter) {
         const { liquid, hash } = this;
@@ -10944,6 +11416,55 @@ class RenderTag extends Tag {
         else {
             const templates = (yield liquid._parsePartialFile(filepath, childCtx.sync, this['currentFile']));
             yield liquid.renderer.renderTemplates(templates, childCtx, emitter);
+        }
+    }
+    *children(partials, sync) {
+        if (partials && isString(this['file'])) {
+            return (yield this.liquid._parsePartialFile(this['file'], sync, this['currentFile']));
+        }
+        return [];
+    }
+    partialScope() {
+        if (isString(this['file'])) {
+            const names = Object.keys(this.hash.hash);
+            if (this['with']) {
+                const { value, alias } = this['with'];
+                if (isString(alias)) {
+                    names.push([alias, value]);
+                }
+                else if (isString(this.file)) {
+                    names.push([this.file, value]);
+                }
+            }
+            if (this['for']) {
+                const { value, alias } = this['for'];
+                if (isString(alias)) {
+                    names.push([alias, value]);
+                }
+                else if (isString(this.file)) {
+                    names.push([this.file, value]);
+                }
+            }
+            return { name: this['file'], isolated: true, scope: names };
+        }
+    }
+    *arguments() {
+        for (const v of Object.values(this.hash.hash)) {
+            if (isValueToken(v)) {
+                yield v;
+            }
+        }
+        if (this['with']) {
+            const { value } = this['with'];
+            if (isValueToken(value)) {
+                yield value;
+            }
+        }
+        if (this['for']) {
+            const { value } = this['for'];
+            if (isValueToken(value)) {
+                yield value;
+            }
         }
     }
 }
@@ -11002,7 +11523,7 @@ class IncludeTag extends Tag {
         }
         else
             tokenizer.p = begin;
-        this.hash = new Hash(tokenizer.remaining(), liquid.options.jekyllInclude || liquid.options.keyValueSeparator);
+        this.hash = new Hash(tokenizer, liquid.options.jekyllInclude || liquid.options.keyValueSeparator);
     }
     *render(ctx, emitter) {
         const { liquid, hash, withVar } = this;
@@ -11021,12 +11542,43 @@ class IncludeTag extends Tag {
         ctx.pop();
         ctx.restoreRegister(saved);
     }
+    *children(partials, sync) {
+        if (partials && isString(this['file'])) {
+            return (yield this.liquid._parsePartialFile(this['file'], sync, this['currentFile']));
+        }
+        return [];
+    }
+    partialScope() {
+        if (isString(this['file'])) {
+            let names;
+            if (this.liquid.options.jekyllInclude) {
+                names = ['include'];
+            }
+            else {
+                names = Object.keys(this.hash.hash);
+                if (this.withVar) {
+                    names.push([this['file'], this.withVar]);
+                }
+            }
+            return { name: this['file'], isolated: false, scope: names };
+        }
+    }
+    *arguments() {
+        yield* Object.values(this.hash.hash).filter(isValueToken);
+        if (isValueToken(this['file'])) {
+            yield this['file'];
+        }
+        if (isValueToken(this.withVar)) {
+            yield this.withVar;
+        }
+    }
 }
 
 class DecrementTag extends Tag {
     constructor(token, remainTokens, liquid) {
         super(token, remainTokens, liquid);
-        this.variable = this.tokenizer.readIdentifier().content;
+        this.identifier = this.tokenizer.readIdentifier();
+        this.variable = this.identifier.content;
     }
     render(context, emitter) {
         const scope = context.environments;
@@ -11034,6 +11586,9 @@ class DecrementTag extends Tag {
             scope[this.variable] = 0;
         }
         emitter.write(stringify(--scope[this.variable]));
+    }
+    *localScope() {
+        yield this.identifier;
     }
 }
 
@@ -11072,6 +11627,12 @@ class CycleTag extends Tag {
         groups[fingerprint] = idx;
         return yield evalToken(candidate, ctx);
     }
+    *arguments() {
+        yield* this.candidates;
+        if (this.group) {
+            yield this.group;
+        }
+    }
 }
 
 class IfTag extends Tag {
@@ -11081,13 +11642,13 @@ class IfTag extends Tag {
         let p = [];
         parser.parseStream(remainTokens)
             .on('start', () => this.branches.push({
-            value: new Value(tagToken.args, this.liquid),
+            value: new Value(tagToken.tokenizer.readFilteredValue(), this.liquid),
             templates: (p = [])
         }))
             .on('tag:elsif', (token) => {
             assert(!this.elseTemplates, 'unexpected elsif after else');
             this.branches.push({
-                value: new Value(token.args, this.liquid),
+                value: new Value(token.tokenizer.readFilteredValue(), this.liquid),
                 templates: (p = [])
             });
         })
@@ -11112,12 +11673,23 @@ class IfTag extends Tag {
         }
         yield r.renderTemplates(this.elseTemplates || [], ctx, emitter);
     }
+    *children() {
+        const templates = this.branches.flatMap(b => b.templates);
+        if (this.elseTemplates) {
+            templates.push(...this.elseTemplates);
+        }
+        return templates;
+    }
+    arguments() {
+        return this.branches.map(b => b.value);
+    }
 }
 
 class IncrementTag extends Tag {
     constructor(token, remainTokens, liquid) {
         super(token, remainTokens, liquid);
-        this.variable = this.tokenizer.readIdentifier().content;
+        this.identifier = this.tokenizer.readIdentifier();
+        this.variable = this.identifier.content;
     }
     render(context, emitter) {
         const scope = context.environments;
@@ -11128,6 +11700,9 @@ class IncrementTag extends Tag {
         scope[this.variable]++;
         emitter.write(stringify(val));
     }
+    *localScope() {
+        yield this.identifier;
+    }
 }
 
 class LayoutTag extends Tag {
@@ -11135,7 +11710,7 @@ class LayoutTag extends Tag {
         super(token, remainTokens, liquid);
         this.file = parseFilePath(this.tokenizer, this.liquid, parser);
         this['currentFile'] = token.file;
-        this.args = new Hash(this.tokenizer.remaining(), liquid.options.keyValueSeparator);
+        this.args = new Hash(this.tokenizer, liquid.options.keyValueSeparator);
         this.templates = parser.parseTokens(remainTokens);
     }
     *render(ctx, emitter) {
@@ -11161,6 +11736,28 @@ class LayoutTag extends Tag {
         ctx.push((yield args.render(ctx)));
         yield renderer.renderTemplates(templates, ctx, emitter);
         ctx.pop();
+    }
+    *children(partials) {
+        const templates = this.templates.slice();
+        if (partials && isString(this.file)) {
+            templates.push(...(yield this.liquid._parsePartialFile(this.file, true, this['currentFile'])));
+        }
+        return templates;
+    }
+    *arguments() {
+        for (const v of Object.values(this.args.hash)) {
+            if (isValueToken(v)) {
+                yield v;
+            }
+        }
+        if (isValueToken(this.file)) {
+            yield this.file;
+        }
+    }
+    partialScope() {
+        if (isString(this.file)) {
+            return { name: this.file, isolated: false, scope: Object.keys(this.args.hash) };
+        }
     }
 }
 
@@ -11198,8 +11795,14 @@ class BlockTag extends Tag {
             ctx.pop();
         };
         return renderChild
-            ? (superBlock, emitter) => renderChild(new BlockDrop(() => renderCurrent(superBlock, emitter)), emitter)
+            ? (superBlock, emitter) => renderChild(new BlockDrop((emitter) => renderCurrent(superBlock, emitter)), emitter)
             : renderCurrent;
+    }
+    *children() {
+        return this.templates;
+    }
+    blockScope() {
+        return ['block'];
     }
 }
 
@@ -11255,7 +11858,7 @@ class TablerowTag extends Tag {
         }
         this.variable = variable.content;
         this.collection = collectionToken;
-        this.args = new Hash(this.tokenizer.remaining(), liquid.options.keyValueSeparator);
+        this.args = new Hash(this.tokenizer, liquid.options.keyValueSeparator);
         this.templates = [];
         let p;
         const stream = parser.parseStream(remainTokens)
@@ -11293,6 +11896,20 @@ class TablerowTag extends Tag {
             emitter.write('</tr>');
         ctx.pop();
     }
+    *children() {
+        return this.templates;
+    }
+    *arguments() {
+        yield this.collection;
+        for (const v of Object.values(this.args.hash)) {
+            if (isValueToken(v)) {
+                yield v;
+            }
+        }
+    }
+    blockScope() {
+        return [this.variable, 'tablerowloop'];
+    }
 }
 
 class UnlessTag extends Tag {
@@ -11304,7 +11921,7 @@ class UnlessTag extends Tag {
         let elseCount = 0;
         parser.parseStream(remainTokens)
             .on('start', () => this.branches.push({
-            value: new Value(tagToken.args, this.liquid),
+            value: new Value(tagToken.tokenizer.readFilteredValue(), this.liquid),
             test: isFalsy,
             templates: (p = [])
         }))
@@ -11314,7 +11931,7 @@ class UnlessTag extends Tag {
                 return;
             }
             this.branches.push({
-                value: new Value(token.args, this.liquid),
+                value: new Value(token.tokenizer.readFilteredValue(), this.liquid),
                 test: isTruthy,
                 templates: (p = [])
             });
@@ -11343,17 +11960,27 @@ class UnlessTag extends Tag {
         }
         yield r.renderTemplates(this.elseTemplates, ctx, emitter);
     }
+    *children() {
+        const children = this.branches.flatMap(b => b.templates);
+        if (this.elseTemplates) {
+            children.push(...this.elseTemplates);
+        }
+        return children;
+    }
+    arguments() {
+        return this.branches.map(b => b.value);
+    }
 }
 
 class BreakTag extends Tag {
-    render(ctx, emitter) {
-        emitter['break'] = true;
+    render(ctx, _emitter) {
+        ctx.breakCalled = true;
     }
 }
 
 class ContinueTag extends Tag {
-    render(ctx, emitter) {
-        emitter['continue'] = true;
+    render(ctx, _emitter) {
+        ctx.continueCalled = true;
     }
 }
 
@@ -11371,6 +11998,11 @@ class EchoTag extends Tag {
         const val = yield this.value.value(ctx, false);
         emitter.write(val);
     }
+    *arguments() {
+        if (this.value) {
+            yield this.value;
+        }
+    }
 }
 
 class LiquidTag extends Tag {
@@ -11381,6 +12013,9 @@ class LiquidTag extends Tag {
     }
     *render(ctx, emitter) {
         yield this.liquid.renderer.renderTemplates(this.templates, ctx, emitter);
+    }
+    *children() {
+        return this.templates;
     }
 }
 
@@ -11520,10 +12155,82 @@ class Liquid {
             self.renderFile(filePath, ctx).then(html => callback(null, html), callback);
         };
     }
+    async analyze(template, options = {}) {
+        return analyze(template, options);
+    }
+    analyzeSync(template, options = {}) {
+        return analyzeSync(template, options);
+    }
+    async parseAndAnalyze(html, filename, options = {}) {
+        return analyze(this.parse(html, filename), options);
+    }
+    parseAndAnalyzeSync(html, filename, options = {}) {
+        return analyzeSync(this.parse(html, filename), options);
+    }
+    /** Return an array of all variables without their properties. */
+    async variables(template, options = {}) {
+        const analysis = await analyze(isString(template) ? this.parse(template) : template, options);
+        return Object.keys(analysis.variables);
+    }
+    /** Return an array of all variables without their properties. */
+    variablesSync(template, options = {}) {
+        const analysis = analyzeSync(isString(template) ? this.parse(template) : template, options);
+        return Object.keys(analysis.variables);
+    }
+    /** Return an array of all variables including their properties/paths. */
+    async fullVariables(template, options = {}) {
+        const analysis = await analyze(isString(template) ? this.parse(template) : template, options);
+        return Array.from(new Set(Object.values(analysis.variables).flatMap((a) => a.map((v) => String(v)))));
+    }
+    /** Return an array of all variables including their properties/paths. */
+    fullVariablesSync(template, options = {}) {
+        const analysis = analyzeSync(isString(template) ? this.parse(template) : template, options);
+        return Array.from(new Set(Object.values(analysis.variables).flatMap((a) => a.map((v) => String(v)))));
+    }
+    /** Return an array of all variables, each as an array of properties/segments. */
+    async variableSegments(template, options = {}) {
+        const analysis = await analyze(isString(template) ? this.parse(template) : template, options);
+        return Array.from(strictUniq(Object.values(analysis.variables).flatMap((a) => a.map((v) => v.toArray()))));
+    }
+    /** Return an array of all variables, each as an array of properties/segments. */
+    variableSegmentsSync(template, options = {}) {
+        const analysis = analyzeSync(isString(template) ? this.parse(template) : template, options);
+        return Array.from(strictUniq(Object.values(analysis.variables).flatMap((a) => a.map((v) => v.toArray()))));
+    }
+    /** Return an array of all expected context variables without their properties. */
+    async globalVariables(template, options = {}) {
+        const analysis = await analyze(isString(template) ? this.parse(template) : template, options);
+        return Object.keys(analysis.globals);
+    }
+    /** Return an array of all expected context variables without their properties. */
+    globalVariablesSync(template, options = {}) {
+        const analysis = analyzeSync(isString(template) ? this.parse(template) : template, options);
+        return Object.keys(analysis.globals);
+    }
+    /** Return an array of all expected context variables including their properties/paths. */
+    async globalFullVariables(template, options = {}) {
+        const analysis = await analyze(isString(template) ? this.parse(template) : template, options);
+        return Array.from(new Set(Object.values(analysis.globals).flatMap((a) => a.map((v) => String(v)))));
+    }
+    /** Return an array of all expected context variables including their properties/paths. */
+    globalFullVariablesSync(template, options = {}) {
+        const analysis = analyzeSync(isString(template) ? this.parse(template) : template, options);
+        return Array.from(new Set(Object.values(analysis.globals).flatMap((a) => a.map((v) => String(v)))));
+    }
+    /** Return an array of all expected context variables, each as an array of properties/segments. */
+    async globalVariableSegments(template, options = {}) {
+        const analysis = await analyze(isString(template) ? this.parse(template) : template, options);
+        return Array.from(strictUniq(Object.values(analysis.globals).flatMap((a) => a.map((v) => v.toArray()))));
+    }
+    /** Return an array of all expected context variables, each as an array of properties/segments. */
+    globalVariableSegmentsSync(template, options = {}) {
+        const analysis = analyzeSync(isString(template) ? this.parse(template) : template, options);
+        return Array.from(strictUniq(Object.values(analysis.globals).flatMap((a) => a.map((v) => v.toArray()))));
+    }
 }
 
 /* istanbul ignore file */
-const version = '10.18.0';
+const version = '10.21.1';
 
 __webpack_unused_export__ = AssertionError;
 __webpack_unused_export__ = AssignTag;
@@ -11553,6 +12260,7 @@ __webpack_unused_export__ = LiquidTag;
 __webpack_unused_export__ = Output;
 __webpack_unused_export__ = ParseError;
 __webpack_unused_export__ = ParseStream;
+__webpack_unused_export__ = Parser;
 __webpack_unused_export__ = RawTag;
 __webpack_unused_export__ = RenderError;
 __webpack_unused_export__ = RenderTag;
@@ -11566,6 +12274,9 @@ __webpack_unused_export__ = typeGuards;
 __webpack_unused_export__ = UndefinedVariableError;
 __webpack_unused_export__ = UnlessTag;
 __webpack_unused_export__ = Value;
+__webpack_unused_export__ = Variable;
+__webpack_unused_export__ = analyze;
+__webpack_unused_export__ = analyzeSync;
 __webpack_unused_export__ = assert;
 __webpack_unused_export__ = createTrie;
 __webpack_unused_export__ = defaultOperators;
@@ -17222,7 +17933,7 @@ module.exports = {
 
 
 const { parseSetCookie } = __nccwpck_require__(8915)
-const { stringify, getHeadersList } = __nccwpck_require__(3834)
+const { stringify } = __nccwpck_require__(3834)
 const { webidl } = __nccwpck_require__(4222)
 const { Headers } = __nccwpck_require__(6349)
 
@@ -17298,14 +18009,13 @@ function getSetCookies (headers) {
 
   webidl.brandCheck(headers, Headers, { strict: false })
 
-  const cookies = getHeadersList(headers).cookies
+  const cookies = headers.getSetCookie()
 
   if (!cookies) {
     return []
   }
 
-  // In older versions of undici, cookies is a list of name:value.
-  return cookies.map((pair) => parseSetCookie(Array.isArray(pair) ? pair[1] : pair))
+  return cookies.map((pair) => parseSetCookie(pair))
 }
 
 /**
@@ -17732,13 +18442,14 @@ module.exports = {
 /***/ }),
 
 /***/ 3834:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+/***/ ((module) => {
 
 
 
-const assert = __nccwpck_require__(2613)
-const { kHeadersList } = __nccwpck_require__(6443)
-
+/**
+ * @param {string} value
+ * @returns {boolean}
+ */
 function isCTLExcludingHtab (value) {
   if (value.length === 0) {
     return false
@@ -17999,31 +18710,13 @@ function stringify (cookie) {
   return out.join('; ')
 }
 
-let kHeadersListNode
-
-function getHeadersList (headers) {
-  if (headers[kHeadersList]) {
-    return headers[kHeadersList]
-  }
-
-  if (!kHeadersListNode) {
-    kHeadersListNode = Object.getOwnPropertySymbols(headers).find(
-      (symbol) => symbol.description === 'headers list'
-    )
-
-    assert(kHeadersListNode, 'Headers cannot be parsed')
-  }
-
-  const headersList = headers[kHeadersListNode]
-  assert(headersList)
-
-  return headersList
-}
-
 module.exports = {
   isCTLExcludingHtab,
-  stringify,
-  getHeadersList
+  validateCookieName,
+  validateCookiePath,
+  validateCookieValue,
+  toIMFDate,
+  stringify
 }
 
 
@@ -19944,6 +20637,14 @@ const { isUint8Array, isArrayBuffer } = __nccwpck_require__(8253)
 const { File: UndiciFile } = __nccwpck_require__(3041)
 const { parseMIMEType, serializeAMimeType } = __nccwpck_require__(4322)
 
+let random
+try {
+  const crypto = __nccwpck_require__(7598)
+  random = (max) => crypto.randomInt(0, max)
+} catch {
+  random = (max) => Math.floor(Math.random(max))
+}
+
 let ReadableStream = globalThis.ReadableStream
 
 /** @type {globalThis['File']} */
@@ -20029,7 +20730,7 @@ function extractBody (object, keepalive = false) {
     // Set source to a copy of the bytes held by object.
     source = new Uint8Array(object.buffer.slice(object.byteOffset, object.byteOffset + object.byteLength))
   } else if (util.isFormDataLike(object)) {
-    const boundary = `----formdata-undici-0${`${Math.floor(Math.random() * 1e11)}`.padStart(11, '0')}`
+    const boundary = `----formdata-undici-0${`${random(1e11)}`.padStart(11, '0')}`
     const prefix = `--${boundary}\r\nContent-Disposition: form-data`
 
     /*! formdata-polyfill. MIT License. Jimmy Wärting <https://jimmy.warting.se/opensource> */
@@ -22006,6 +22707,7 @@ const {
   isValidHeaderName,
   isValidHeaderValue
 } = __nccwpck_require__(5523)
+const util = __nccwpck_require__(9023)
 const { webidl } = __nccwpck_require__(4222)
 const assert = __nccwpck_require__(2613)
 
@@ -22559,6 +23261,9 @@ Object.defineProperties(Headers.prototype, {
   [Symbol.toStringTag]: {
     value: 'Headers',
     configurable: true
+  },
+  [util.inspect.custom]: {
+    enumerable: false
   }
 })
 
@@ -31706,6 +32411,20 @@ class Pool extends PoolBase {
       ? { ...options.interceptors }
       : undefined
     this[kFactory] = factory
+
+    this.on('connectionError', (origin, targets, error) => {
+      // If a connection error occurs, we remove the client from the pool,
+      // and emit a connectionError event. They will not be re-used.
+      // Fixes https://github.com/nodejs/undici/issues/3895
+      for (const target of targets) {
+        // Do not use kRemoveClient here, as it will close the client,
+        // but the client cannot be closed in this state.
+        const idx = this[kClients].indexOf(target)
+        if (idx !== -1) {
+          this[kClients].splice(idx, 1)
+        }
+      }
+    })
   }
 
   [kGetDispatcher] () {
@@ -34156,6 +34875,13 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("net");
 
 /***/ }),
 
+/***/ 7598:
+/***/ ((module) => {
+
+module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:crypto");
+
+/***/ }),
+
 /***/ 8474:
 /***/ ((module) => {
 
@@ -35892,23 +36618,23 @@ module.exports = parseParams
 /***/ ((__webpack_module__, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
-/* harmony import */ var liquidjs__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(8694);
-/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(7484);
-/* harmony import */ var _actions_github__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(3228);
+/* harmony import */ var liquidjs__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(8694);
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(7484);
+/* harmony import */ var _actions_github__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(3228);
 
 
 
 
 try {
   // Input defined in action metadata file
-  const EXTNAME = (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('extname') || undefined
-  const ROOT = (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('root')
-  const LAYOUTS = (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('layouts') || undefined
-  const PARTIALS = (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('partials') || undefined
-  const FILE = (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.getInput)('file')
+  const EXTNAME = (0,_actions_core__WEBPACK_IMPORTED_MODULE_0__.getInput)('extname') || undefined
+  const ROOT = (0,_actions_core__WEBPACK_IMPORTED_MODULE_0__.getInput)('root')
+  const LAYOUTS = (0,_actions_core__WEBPACK_IMPORTED_MODULE_0__.getInput)('layouts') || undefined
+  const PARTIALS = (0,_actions_core__WEBPACK_IMPORTED_MODULE_0__.getInput)('partials') || undefined
+  const FILE = (0,_actions_core__WEBPACK_IMPORTED_MODULE_0__.getInput)('file')
 
   // Liquidjs engine
-  const engine = new liquidjs__WEBPACK_IMPORTED_MODULE_0__/* .Liquid */ .HX({
+  const engine = new liquidjs__WEBPACK_IMPORTED_MODULE_2__/* .Liquid */ .HX({
     extname: EXTNAME, // used for layouts/includes
     root: ROOT, // root files for `.render()` and `.parse()`
     layouts: LAYOUTS, // layout files for `{% layout %}`
@@ -35921,13 +36647,13 @@ try {
   const RENDERED_CONTENT = await engine.renderFile(FILE)
 
   // Set the output
-  ;(0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.setOutput)('rendered-content', RENDERED_CONTENT)
+  ;(0,_actions_core__WEBPACK_IMPORTED_MODULE_0__.setOutput)('rendered-content', RENDERED_CONTENT)
 
   // Get the JSON webhook payload for the event that triggered the workflow
-  const payload = JSON.stringify(_actions_github__WEBPACK_IMPORTED_MODULE_2__.context.payload, undefined, 2)
+  const payload = JSON.stringify(_actions_github__WEBPACK_IMPORTED_MODULE_1__.context.payload, undefined, 2)
   console.log(`The event payload: ${payload}`)
 } catch (error) {
-  (0,_actions_core__WEBPACK_IMPORTED_MODULE_1__.setFailed)(error.message)
+  (0,_actions_core__WEBPACK_IMPORTED_MODULE_0__.setFailed)(error.message)
 }
 
 __webpack_async_result__();
