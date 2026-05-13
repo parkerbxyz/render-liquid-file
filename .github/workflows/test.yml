@@ -1,0 +1,16 @@
+name: test
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    uses: parkerbxyz/.github/.github/workflows/npm-test.yml@main
