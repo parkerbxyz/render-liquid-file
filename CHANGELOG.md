@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.5](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.4...v1.1.5) (2026-05-13)
+
+
+### Bug Fixes
+
+* **deps:** bump @actions/core from 1.11.1 to 3.0.1 ([#41](https://github.com/parkerbxyz/render-liquid-file/issues/41)) ([6435556](https://github.com/parkerbxyz/render-liquid-file/commit/643555614cf53db6934d208ebb4778f30ef5a122))
+* **deps:** bump @actions/github from 6.0.1 to 9.1.1 ([#42](https://github.com/parkerbxyz/render-liquid-file/issues/42)) ([155162e](https://github.com/parkerbxyz/render-liquid-file/commit/155162ecb7ba5c932112d9b0706952b385c88c36))
+* **deps:** bump liquidjs from 10.21.1 to 10.25.0 ([#40](https://github.com/parkerbxyz/render-liquid-file/issues/40)) ([d128d87](https://github.com/parkerbxyz/render-liquid-file/commit/d128d8740dba9bdc8c25554bd816235411a9d139))
+* **deps:** bump liquidjs from 10.25.0 to 10.25.7 ([#43](https://github.com/parkerbxyz/render-liquid-file/issues/43)) ([806a61b](https://github.com/parkerbxyz/render-liquid-file/commit/806a61b4de6ff47b5e7702f8b21adcf4044de497))
+* run release-please on main pushes ([#44](https://github.com/parkerbxyz/render-liquid-file/issues/44)) ([7491bbe](https://github.com/parkerbxyz/render-liquid-file/commit/7491bbea38a4adea20d97c936b3a5ca5ba8cd6d4))
+
 ## [1.1.4](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.3...v1.1.4) (2025-05-21)
 
 
