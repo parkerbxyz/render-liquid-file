@@ -849,7 +849,7 @@ class DecodedURL extends URL {
 
 var __webpack_unused_export__;
 /*
- * liquidjs@10.25.7, https://github.com/harttle/liquidjs
+ * liquidjs@10.26.0, https://github.com/harttle/liquidjs
  * (c) 2016-2026 harttle
  * Released under the MIT License.
  */
@@ -860,6 +860,7 @@ __webpack_unused_export__ = ({ value: true });
 var stream = __nccwpck_require__(2203);
 var path = __nccwpck_require__(6928);
 var fs$1 = __nccwpck_require__(9896);
+var crypto = __nccwpck_require__(6982);
 
 class Token {
     constructor(kind, input, begin, end, file) {
@@ -1026,10 +1027,10 @@ function padEnd(str, length, ch = ' ') {
 }
 function pad(str, length, ch, add) {
     str = String(str);
-    let n = length - str.length;
-    while (n-- > 0)
-        str = add(str, ch);
-    return str;
+    const n = length - str.length;
+    if (n <= 0)
+        return str;
+    return add(str, ch.repeat(n));
 }
 function identify(val) {
     return val;
@@ -1579,6 +1580,7 @@ const formatCodes = {
     N: (d, opts) => {
         const width = Number(opts.width) || 9;
         const str = String(d.getMilliseconds()).slice(0, width);
+        opts.memoryLimit?.use(width - str.length);
         return padEnd(str, width, '0');
     },
     p: (d) => (d.getHours() < 12 ? 'AM' : 'PM'),
@@ -1601,18 +1603,18 @@ const formatCodes = {
     '%': () => '%'
 };
 formatCodes.h = formatCodes.b;
-function strftime(d, formatStr) {
+function strftime(d, formatStr, memoryLimit) {
     let output = '';
     let remaining = formatStr;
     let match;
     while ((match = rFormat.exec(remaining))) {
         output += remaining.slice(0, match.index);
         remaining = remaining.slice(match.index + match[0].length);
-        output += format(d, match);
+        output += format(d, match, memoryLimit);
     }
     return output + remaining;
 }
-function format(d, match) {
+function format(d, match, memoryLimit) {
     const [input, flagStr = '', width, modifier, conversion] = match;
     const convert = formatCodes[conversion];
     if (!convert)
@@ -1620,7 +1622,7 @@ function format(d, match) {
     const flags = {};
     for (const flag of flagStr)
         flags[flag] = true;
-    let ret = String(convert(d, { flags, width, modifier }));
+    let ret = String(convert(d, { flags, width, modifier, memoryLimit }));
     let padChar = padSpaceChars.has(conversion) ? ' ' : '0';
     let padWidth = width || padWidths[conversion] || 0;
     if (flags['^'])
@@ -1633,6 +1635,7 @@ function format(d, match) {
         padChar = '0';
     if (flags['-'])
         padWidth = 0;
+    memoryLimit?.use(Number(padWidth) - ret.length);
     return padStart(ret, padWidth, padChar);
 }
 
@@ -2088,6 +2091,7 @@ class Render {
         if (!emitter) {
             emitter = ctx.opts.keepOutputType ? new KeepingTypeEmitter() : new SimpleEmitter();
         }
+        ctx.renderLimit.check(getPerformance().now());
         const errors = [];
         for (const tpl of templates) {
             ctx.renderLimit.check(getPerformance().now());
@@ -2491,10 +2495,33 @@ function newline_to_br(v) {
     this.context.memoryLimit.use(str.length);
     return str.replace(/\r?\n/gm, '<br />\n');
 }
+// Raw-text blocks (HTML5) plus '<...>' as the catch-all kind; a regex
+// equivalent is O(n^2) in V8 on unclosed openers.
 function strip_html(v) {
     const str = stringify(v);
     this.context.memoryLimit.use(str.length);
-    return str.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<.*?>|<!--[\s\S]*?-->/g, '');
+    const blocks = new Map([['<script', '</script>'], ['<style', '</style>'], ['<!--', '-->'], ['<', '>']]);
+    let out = '';
+    let i = 0;
+    while (i < str.length) {
+        const lt = str.indexOf('<', i);
+        if (lt < 0)
+            return out + str.slice(i);
+        out += str.slice(i, lt);
+        for (const [opener, closer] of blocks) {
+            if (!str.startsWith(opener, lt))
+                continue;
+            const e = str.indexOf(closer, lt + opener.length);
+            if (e >= 0) {
+                i = e + closer.length;
+                break;
+            }
+            blocks.delete(opener);
+        }
+        if (i === lt)
+            return out + str.slice(lt);
+    }
+    return out;
 }
 
 var htmlFilters = /*#__PURE__*/Object.freeze({
@@ -3955,7 +3982,8 @@ class Context {
         return new Context(scope, this.opts, {
             sync: this.sync,
             globals: this.globals,
-            strictVariables: this.strictVariables
+            strictVariables: this.strictVariables,
+            ownPropertyOnly: this.ownPropertyOnly
         }, {
             renderLimit: this.renderLimit,
             memoryLimit: this.memoryLimit
@@ -4381,14 +4409,15 @@ var arrayFilters = /*#__PURE__*/Object.freeze({
 });
 
 function date(v, format, timezoneOffset) {
-    const size = (v?.length ?? 0) + (format?.length ?? 0) + (timezoneOffset?.length ?? 0);
+    const size = (v?.length ?? 0) + (timezoneOffset?.length ?? 0);
     this.context.memoryLimit.use(size);
     const date = parseDate(v, this.context.opts, timezoneOffset);
     if (!date)
         return v;
     format = toValue(format);
     format = isNil(format) ? this.context.opts.dateFormat : stringify(format);
-    return strftime(date, format);
+    this.context.memoryLimit.use(format.length);
+    return strftime(date, format, this.context.memoryLimit);
 }
 function date_to_xmlschema(v) {
     return date.call(this, v, '%Y-%m-%dT%H:%M:%S%:z');
@@ -4406,13 +4435,14 @@ function stringify_date(v, month_type, type, style) {
     const date = parseDate(v, this.context.opts);
     if (!date)
         return v;
+    const ml = this.context.memoryLimit;
     if (type === 'ordinal') {
         const d = date.getDate();
         return style === 'US'
-            ? strftime(date, `${month_type} ${d}%q, %Y`)
-            : strftime(date, `${d}%q ${month_type} %Y`);
+            ? strftime(date, `${month_type} ${d}%q, %Y`, ml)
+            : strftime(date, `${d}%q ${month_type} %Y`, ml);
     }
-    return strftime(date, `%d ${month_type} %Y`);
+    return strftime(date, `%d ${month_type} %Y`, ml);
 }
 function parseDate(v, opts, timezoneOffset) {
     let date;
@@ -4715,6 +4745,36 @@ var base64Filters = /*#__PURE__*/Object.freeze({
   base64_decode: base64_decode
 });
 
+function sha256(str) {
+    return crypto.createHash('sha256').update(str, 'utf8').digest('hex');
+}
+function hmacSha256(str, key) {
+    return crypto.createHmac('sha256', key).update(str, 'utf8').digest('hex');
+}
+
+/**
+ * Crypto related filters
+ *
+ * Implements sha256 and hmac_sha256 filters for Shopify compatibility
+ */
+function sha256$1(value) {
+    const str = stringify(value);
+    this.context.memoryLimit.use(str.length);
+    return sha256(str);
+}
+function hmac_sha256(value, key) {
+    const str = stringify(value);
+    const keyStr = stringify(key);
+    this.context.memoryLimit.use(str.length + keyStr.length);
+    return hmacSha256(str, keyStr);
+}
+
+var cryptoFilters = /*#__PURE__*/Object.freeze({
+  __proto__: null,
+  sha256: sha256$1,
+  hmac_sha256: hmac_sha256
+});
+
 const filters = {
     ...htmlFilters,
     ...mathFilters,
@@ -4723,6 +4783,7 @@ const filters = {
     ...dateFilters,
     ...stringFilters,
     ...base64Filters,
+    ...cryptoFilters,
     ...misc
 };
 
@@ -5672,8 +5733,8 @@ const tags = {
 class Liquid {
     constructor(opts = {}) {
         this.renderer = new Render();
-        this.filters = {};
-        this.tags = {};
+        this.filters = Object.create(null);
+        this.tags = Object.create(null);
         this.options = normalize(opts);
         // eslint-disable-next-line deprecation/deprecation
         this.parser = new Parser(this);
@@ -5846,7 +5907,7 @@ class Liquid {
 }
 
 /* istanbul ignore file */
-const version = '10.25.7';
+const version = '10.26.0';
 
 __webpack_unused_export__ = AssertionError;
 __webpack_unused_export__ = AssignTag;
@@ -33655,6 +33716,13 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("assert");
 
 /***/ }),
 
+/***/ 6982:
+/***/ ((module) => {
+
+module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("crypto");
+
+/***/ }),
+
 /***/ 4434:
 /***/ ((module) => {
 
@@ -34054,7 +34122,7 @@ function qstring(str) {
 
 __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
 /* harmony import */ var liquidjs__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(8694);
-/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6910);
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(4932);
 /* harmony import */ var _actions_github__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(157);
 
 
@@ -34096,7 +34164,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 6910:
+/***/ 4932:
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -34239,8 +34307,8 @@ function escapeProperty(s) {
         .replace(/,/g, '%2C');
 }
 //# sourceMappingURL=command.js.map
-;// CONCATENATED MODULE: external "crypto"
-const external_crypto_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("crypto");
+// EXTERNAL MODULE: external "crypto"
+var external_crypto_ = __nccwpck_require__(6982);
 // EXTERNAL MODULE: external "fs"
 var external_fs_ = __nccwpck_require__(9896);
 ;// CONCATENATED MODULE: ./node_modules/@actions/core/lib/file-command.js
@@ -34264,7 +34332,7 @@ function file_command_issueFileCommand(command, message) {
     });
 }
 function file_command_prepareKeyValueMessage(key, value) {
-    const delimiter = `ghadelimiter_${external_crypto_namespaceObject.randomUUID()}`;
+    const delimiter = `ghadelimiter_${external_crypto_.randomUUID()}`;
     const convertedValue = utils_toCommandValue(value);
     // These should realistically never happen, but just in case someone finds a
     // way to exploit uuid generation let's not allow keys or values that contain
