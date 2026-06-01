@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.7](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.6...v1.1.7) (2026-06-01)
+
+
+### Bug Fixes
+
+* **deps:** bump liquidjs from 10.26.0 to 10.27.0 ([#49](https://github.com/parkerbxyz/render-liquid-file/issues/49)) ([ad700b5](https://github.com/parkerbxyz/render-liquid-file/commit/ad700b53420e2f2a183cf12285e4943f9e3e6532))
+
 ## [1.1.6](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.5...v1.1.6) (2026-05-28)
 
 
