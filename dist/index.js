@@ -849,7 +849,7 @@ class DecodedURL extends URL {
 
 var __webpack_unused_export__;
 /*
- * liquidjs@10.26.0, https://github.com/harttle/liquidjs
+ * liquidjs@10.27.0, https://github.com/harttle/liquidjs
  * (c) 2016-2026 harttle
  * Released under the MIT License.
  */
@@ -3904,13 +3904,20 @@ var __assign = function() {
     return __assign.apply(this, arguments);
 };
 
+function createScope(from) {
+    const scope = Object.create(null);
+    if (from)
+        Object.assign(scope, from);
+    return scope;
+}
+
 class Context {
     constructor(env = {}, opts = defaultOptions, renderOptions = {}, { memoryLimit, renderLimit } = {}) {
         /**
          * insert a Context-level empty scope,
          * for tags like `{% capture %}` `{% assign %}` to operate
          */
-        this.scopes = [{}];
+        this.scopes = [createScope()];
         this.registers = {};
         this.breakCalled = false;
         this.continueCalled = false;
@@ -4841,7 +4848,7 @@ class ForTag extends Tag {
             return;
         }
         const continueKey = 'continue-' + this.variable + '-' + this.collection.getText();
-        ctx.push({ continue: ctx.getRegister(continueKey, {}) });
+        ctx.push(createScope({ continue: ctx.getRegister(continueKey, {}) }));
         const hash = yield this.hash.render(ctx);
         ctx.pop();
         const modifiers = this.liquid.options.orderedFilterParameters
@@ -4855,7 +4862,7 @@ class ForTag extends Tag {
             return reversed(collection);
         }, collection);
         ctx.setRegister(continueKey, (hash['offset'] || 0) + collection.length);
-        const scope = { forloop: new ForloopDrop(collection.length, this.collection.getText(), this.variable) };
+        const scope = createScope({ forloop: new ForloopDrop(collection.length, this.collection.getText(), this.variable) });
         ctx.push(scope);
         for (const item of collection) {
             scope[this.variable] = item;
@@ -5205,11 +5212,11 @@ class IncludeTag extends Tag {
         const saved = ctx.saveRegister('blocks', 'blockMode');
         ctx.setRegister('blocks', {});
         ctx.setRegister('blockMode', BlockMode.OUTPUT);
-        const scope = (yield hash.render(ctx));
+        const scope = createScope((yield hash.render(ctx)));
         if (withVar)
             scope[filepath] = yield evalToken(withVar, ctx);
         const templates = (yield liquid._parsePartialFile(filepath, ctx.sync, this['currentFile']));
-        ctx.push(ctx.opts.jekyllInclude ? { include: scope } : scope);
+        ctx.push(ctx.opts.jekyllInclude ? createScope({ include: scope }) : scope);
         yield renderer.renderTemplates(templates, ctx, emitter);
         ctx.pop();
         ctx.restoreRegister(saved);
@@ -5405,7 +5412,7 @@ class LayoutTag extends Tag {
             blocks[''] = (parent, emitter) => emitter.write(html);
         ctx.setRegister('blockMode', BlockMode.OUTPUT);
         // render the layout file use stored blocks
-        ctx.push((yield args.render(ctx)));
+        ctx.push(createScope((yield args.render(ctx))));
         yield renderer.renderTemplates(templates, ctx, emitter);
         ctx.pop();
     }
@@ -5466,7 +5473,7 @@ class BlockTag extends Tag {
             if (stack.includes(self))
                 throw new Error('block tag cannot be nested');
             stack.push(self);
-            ctx.push({ block: superBlock });
+            ctx.push(createScope({ block: superBlock }));
             yield liquid.renderer.renderTemplates(templates, ctx, emitter);
             ctx.pop();
             stack.pop();
@@ -5556,7 +5563,7 @@ class TablerowTag extends Tag {
         const cols = args.cols || collection.length;
         const r = this.liquid.renderer;
         const tablerowloop = new TablerowloopDrop(collection.length, cols, this.collection.getText(), this.variable);
-        const scope = { tablerowloop };
+        const scope = createScope({ tablerowloop });
         ctx.push(scope);
         for (let idx = 0; idx < collection.length; idx++, tablerowloop.next()) {
             scope[this.variable] = collection[idx];
@@ -5907,7 +5914,7 @@ class Liquid {
 }
 
 /* istanbul ignore file */
-const version = '10.26.0';
+const version = '10.27.0';
 
 __webpack_unused_export__ = AssertionError;
 __webpack_unused_export__ = AssignTag;
