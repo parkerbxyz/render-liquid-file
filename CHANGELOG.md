@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.8](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.7...v1.1.8) (2026-06-24)
+
+
+### Bug Fixes
+
+* **deps:** bump undici from 6.25.0 to 6.27.0 ([#51](https://github.com/parkerbxyz/render-liquid-file/issues/51)) ([f3cde38](https://github.com/parkerbxyz/render-liquid-file/commit/f3cde38221922ff26005ef16487203e87df704c6))
+
 ## [1.1.7](https://github.com/parkerbxyz/render-liquid-file/compare/v1.1.6...v1.1.7) (2026-06-01)
 
 
