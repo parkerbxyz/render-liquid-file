@@ -849,7 +849,7 @@ class DecodedURL extends URL {
 
 var __webpack_unused_export__;
 /*
- * liquidjs@10.27.0, https://github.com/harttle/liquidjs
+ * liquidjs@10.27.1, https://github.com/harttle/liquidjs
  * (c) 2016-2026 harttle
  * Released under the MIT License.
  */
@@ -1421,7 +1421,16 @@ const literalValues = {
     'blank': new BlankDrop()
 };
 
+// Tries are built once per input object and reused: the Tokenizer rebuilds them
+// on every instantiation, but `input` (operators/literalValues) is a stable
+// reference. WeakMap-keying by `input` lets short-lived operator objects (and
+// their tries) be garbage collected. The returned trie is treated as read-only
+// by callers (matchTrie only reads it); do not mutate it.
+const trieCache = new WeakMap();
 function createTrie(input) {
+    const cached = trieCache.get(input);
+    if (cached)
+        return cached;
     const trie = {};
     for (const [name, data] of Object.entries(input)) {
         let node = trie;
@@ -1436,6 +1445,7 @@ function createTrie(input) {
         node.data = data;
         node.end = true;
     }
+    trieCache.set(input, trie);
     return trie;
 }
 
@@ -1454,7 +1464,7 @@ async function toPromise(val) {
     let next = 'next';
     do {
         const state = val[next](value);
-        done = state.done;
+        done = !!state.done;
         value = state.value;
         next = 'next';
         try {
@@ -1479,7 +1489,7 @@ function toValueSync(val) {
     let next = 'next';
     do {
         const state = val[next](value);
-        done = state.done;
+        done = !!state.done;
         value = state.value;
         next = 'next';
         if (isIterator(value)) {
@@ -1624,7 +1634,7 @@ function format(d, match, memoryLimit) {
         flags[flag] = true;
     let ret = String(convert(d, { flags, width, modifier, memoryLimit }));
     let padChar = padSpaceChars.has(conversion) ? ' ' : '0';
-    let padWidth = width || padWidths[conversion] || 0;
+    let padWidth = Number(width) || padWidths[conversion] || 0;
     if (flags['^'])
         ret = ret.toUpperCase();
     else if (flags['#'])
@@ -1929,8 +1939,7 @@ class OperatorToken extends Token {
         this.operator = this.getText();
     }
     getPrecedence() {
-        const key = this.getText();
-        return key in operatorPrecedences ? operatorPrecedences[key] : 1;
+        return this.operator in operatorPrecedences ? operatorPrecedences[this.operator] : 1;
     }
 }
 
@@ -2518,7 +2527,7 @@ function strip_html(v) {
             }
             blocks.delete(opener);
         }
-        if (i === lt)
+        if (i <= lt)
             return out + str.slice(lt);
     }
     return out;
@@ -4073,9 +4082,8 @@ function round(v, arg = 0) {
     v = toNumber(v);
     arg = toNumber(arg);
     const amp = Math.pow(10, arg);
-    const scaled = v * amp;
-    // Round half away from zero
-    return Math.sign(v) * Math.round(Math.abs(scaled)) / amp;
+    const scaled = (v * amp) * (1 + Number.EPSILON);
+    return Math.round(scaled) / amp;
 }
 
 var mathFilters = /*#__PURE__*/Object.freeze({
@@ -4221,7 +4229,9 @@ function unshift(v, arg) {
     return clone;
 }
 function pop(v) {
-    const clone = [...toArray(v)];
+    const array = toArray(v);
+    this.context.memoryLimit.use(array.length);
+    const clone = [...array];
     clone.pop();
     return clone;
 }
@@ -4374,7 +4384,7 @@ function sample(v, count = 1) {
         return [];
     if (!isArray(v))
         v = stringify(v);
-    this.context.memoryLimit.use(count);
+    this.context.memoryLimit.use(v.length);
     const shuffled = [...v].sort(() => Math.random() - 0.5);
     if (count === 1)
         return shuffled[0];
@@ -4849,7 +4859,7 @@ class ForTag extends Tag {
         }
         const continueKey = 'continue-' + this.variable + '-' + this.collection.getText();
         ctx.push(createScope({ continue: ctx.getRegister(continueKey, {}) }));
-        const hash = yield this.hash.render(ctx);
+        const hash = (yield this.hash.render(ctx));
         ctx.pop();
         const modifiers = this.liquid.options.orderedFilterParameters
             ? Object.keys(hash).filter(x => MODIFIERS.includes(x))
@@ -5054,7 +5064,11 @@ class RenderTag extends Tag {
                             alias = tokenizer.readIdentifier();
                         else
                             tokenizer.p = beforeAs;
-                        this[keyword.content] = { value, alias: alias && alias.content };
+                        const binding = { value, alias: alias && alias.content };
+                        if (keyword.content === 'with')
+                            this.with = binding;
+                        else
+                            this.forBinding = binding;
                         tokenizer.skipBlank();
                         if (tokenizer.peek() === ',')
                             tokenizer.advance();
@@ -5072,42 +5086,42 @@ class RenderTag extends Tag {
     }
     *render(ctx, emitter) {
         const { liquid, hash } = this;
-        const filepath = (yield renderFilePath(this['file'], ctx, liquid));
+        const filepath = (yield renderFilePath(this.file, ctx, liquid));
         assert(filepath, () => `illegal file path "${filepath}"`);
         const childCtx = ctx.spawn();
         const scope = childCtx.bottom();
         __assign(scope, yield hash.render(ctx));
-        if (this['with']) {
-            const { value, alias } = this['with'];
+        if (this.with) {
+            const { value, alias } = this.with;
             scope[alias || filepath] = yield evalToken(value, ctx);
         }
-        if (this['for']) {
-            const { value, alias } = this['for'];
+        if (this.forBinding) {
+            const { value, alias } = this.forBinding;
             const collection = toEnumerable(yield evalToken(value, ctx));
             scope['forloop'] = new ForloopDrop(collection.length, value.getText(), alias);
             for (const item of collection) {
                 scope[alias] = item;
-                const templates = (yield liquid._parsePartialFile(filepath, childCtx.sync, this['currentFile']));
+                const templates = (yield liquid._parsePartialFile(filepath, childCtx.sync, this.currentFile));
                 yield liquid.renderer.renderTemplates(templates, childCtx, emitter);
                 scope['forloop'].next();
             }
         }
         else {
-            const templates = (yield liquid._parsePartialFile(filepath, childCtx.sync, this['currentFile']));
+            const templates = (yield liquid._parsePartialFile(filepath, childCtx.sync, this.currentFile));
             yield liquid.renderer.renderTemplates(templates, childCtx, emitter);
         }
     }
     *children(partials, sync) {
-        if (partials && isString(this['file'])) {
-            return (yield this.liquid._parsePartialFile(this['file'], sync, this['currentFile']));
+        if (partials && isString(this.file)) {
+            return (yield this.liquid._parsePartialFile(this.file, sync, this.currentFile));
         }
         return [];
     }
     partialScope() {
-        if (isString(this['file'])) {
+        if (isString(this.file)) {
             const names = Object.keys(this.hash.hash);
-            if (this['with']) {
-                const { value, alias } = this['with'];
+            if (this.with) {
+                const { value, alias } = this.with;
                 if (isString(alias)) {
                     names.push([alias, value]);
                 }
@@ -5115,8 +5129,8 @@ class RenderTag extends Tag {
                     names.push([this.file, value]);
                 }
             }
-            if (this['for']) {
-                const { value, alias } = this['for'];
+            if (this.forBinding) {
+                const { value, alias } = this.forBinding;
                 if (isString(alias)) {
                     names.push([alias, value]);
                 }
@@ -5124,7 +5138,7 @@ class RenderTag extends Tag {
                     names.push([this.file, value]);
                 }
             }
-            return { name: this['file'], isolated: true, scope: names };
+            return { name: this.file, isolated: true, scope: names };
         }
     }
     *arguments() {
@@ -5133,14 +5147,14 @@ class RenderTag extends Tag {
                 yield v;
             }
         }
-        if (this['with']) {
-            const { value } = this['with'];
+        if (this.with) {
+            const { value } = this.with;
             if (isValueToken(value)) {
                 yield value;
             }
         }
-        if (this['for']) {
-            const { value } = this['for'];
+        if (this.forBinding) {
+            const { value } = this.forBinding;
             if (isValueToken(value)) {
                 yield value;
             }
@@ -5188,8 +5202,8 @@ class IncludeTag extends Tag {
     constructor(token, remainTokens, liquid, parser) {
         super(token, remainTokens, liquid);
         const { tokenizer } = token;
-        this['file'] = parseFilePath(tokenizer, this.liquid, parser);
-        this['currentFile'] = token.file;
+        this.file = parseFilePath(tokenizer, this.liquid, parser);
+        this.currentFile = token.file;
         const begin = tokenizer.p;
         const withStr = tokenizer.readIdentifier();
         if (withStr.content === 'with') {
@@ -5207,7 +5221,7 @@ class IncludeTag extends Tag {
     *render(ctx, emitter) {
         const { liquid, hash, withVar } = this;
         const { renderer } = liquid;
-        const filepath = (yield renderFilePath(this['file'], ctx, liquid));
+        const filepath = (yield renderFilePath(this.file, ctx, liquid));
         assert(filepath, () => `illegal file path "${filepath}"`);
         const saved = ctx.saveRegister('blocks', 'blockMode');
         ctx.setRegister('blocks', {});
@@ -5215,20 +5229,20 @@ class IncludeTag extends Tag {
         const scope = createScope((yield hash.render(ctx)));
         if (withVar)
             scope[filepath] = yield evalToken(withVar, ctx);
-        const templates = (yield liquid._parsePartialFile(filepath, ctx.sync, this['currentFile']));
+        const templates = (yield liquid._parsePartialFile(filepath, ctx.sync, this.currentFile));
         ctx.push(ctx.opts.jekyllInclude ? createScope({ include: scope }) : scope);
         yield renderer.renderTemplates(templates, ctx, emitter);
         ctx.pop();
         ctx.restoreRegister(saved);
     }
     *children(partials, sync) {
-        if (partials && isString(this['file'])) {
-            return (yield this.liquid._parsePartialFile(this['file'], sync, this['currentFile']));
+        if (partials && isString(this.file)) {
+            return (yield this.liquid._parsePartialFile(this.file, sync, this.currentFile));
         }
         return [];
     }
     partialScope() {
-        if (isString(this['file'])) {
+        if (isString(this.file)) {
             let names;
             if (this.liquid.options.jekyllInclude) {
                 names = ['include'];
@@ -5236,16 +5250,16 @@ class IncludeTag extends Tag {
             else {
                 names = Object.keys(this.hash.hash);
                 if (this.withVar) {
-                    names.push([this['file'], this.withVar]);
+                    names.push([this.file, this.withVar]);
                 }
             }
-            return { name: this['file'], isolated: false, scope: names };
+            return { name: this.file, isolated: false, scope: names };
         }
     }
     *arguments() {
         yield* Object.values(this.hash.hash).filter(isValueToken);
-        if (isValueToken(this['file'])) {
-            yield this['file'];
+        if (isValueToken(this.file)) {
+            yield this.file;
         }
         if (isValueToken(this.withVar)) {
             yield this.withVar;
@@ -5388,7 +5402,7 @@ class LayoutTag extends Tag {
     constructor(token, remainTokens, liquid, parser) {
         super(token, remainTokens, liquid);
         this.file = parseFilePath(this.tokenizer, this.liquid, parser);
-        this['currentFile'] = token.file;
+        this.currentFile = token.file;
         this.args = new Hash(this.tokenizer, liquid.options.keyValueSeparator);
         this.templates = parser.parseTokens(remainTokens);
     }
@@ -5402,7 +5416,7 @@ class LayoutTag extends Tag {
         }
         const filepath = (yield renderFilePath(this.file, ctx, liquid));
         assert(filepath, () => `illegal file path "${filepath}"`);
-        const templates = (yield liquid._parseLayoutFile(filepath, ctx.sync, this['currentFile']));
+        const templates = (yield liquid._parseLayoutFile(filepath, ctx.sync, this.currentFile));
         // render remaining contents and store rendered results
         ctx.setRegister('blockMode', BlockMode.STORE);
         const html = yield renderer.renderTemplates(this.templates, ctx);
@@ -5419,7 +5433,7 @@ class LayoutTag extends Tag {
     *children(partials) {
         const templates = this.templates.slice();
         if (partials && isString(this.file)) {
-            templates.push(...(yield this.liquid._parsePartialFile(this.file, true, this['currentFile'])));
+            templates.push(...(yield this.liquid._parsePartialFile(this.file, true, this.currentFile)));
         }
         return templates;
     }
@@ -5914,7 +5928,7 @@ class Liquid {
 }
 
 /* istanbul ignore file */
-const version = '10.27.0';
+const version = '10.27.1';
 
 __webpack_unused_export__ = AssertionError;
 __webpack_unused_export__ = AssignTag;
