@@ -849,7 +849,7 @@ class DecodedURL extends URL {
 
 var __webpack_unused_export__;
 /*
- * liquidjs@10.27.1, https://github.com/harttle/liquidjs
+ * liquidjs@10.29.0, https://github.com/harttle/liquidjs
  * (c) 2016-2026 harttle
  * Released under the MIT License.
  */
@@ -931,6 +931,13 @@ function stringify(value) {
         return value.map(x => stringify(x)).join('');
     return String(value);
 }
+function readArrayElement(arr, index, ownPropertyOnly) {
+    if (index < 0)
+        index = arr.length + index;
+    if (ownPropertyOnly && !hasOwnProperty.call(arr, index))
+        return undefined;
+    return arr[index];
+}
 function toEnumerable(val) {
     val = toValue(val);
     if (isArray(val))
@@ -998,9 +1005,6 @@ function forOwn(obj, iteratee) {
         }
     }
     return obj;
-}
-function last(arr) {
-    return arr[arr.length - 1];
 }
 /*
  * Checks if value is the language type of Object.
@@ -1589,14 +1593,14 @@ const formatCodes = {
     M: (d) => d.getMinutes(),
     N: (d, opts) => {
         const width = Number(opts.width) || 9;
-        const str = String(d.getMilliseconds()).slice(0, width);
+        const str = padStart(String(d.getMilliseconds()), 3, '0').slice(0, width);
         opts.memoryLimit?.use(width - str.length);
         return padEnd(str, width, '0');
     },
     p: (d) => (d.getHours() < 12 ? 'AM' : 'PM'),
     P: (d) => (d.getHours() < 12 ? 'am' : 'pm'),
     q: (d) => ordinal(d),
-    s: (d) => Math.round(d.getTime() / 1000),
+    s: (d) => Math.floor(d.dateValue() / 1000),
     S: (d) => d.getSeconds(),
     u: (d) => d.getDay() || 7,
     U: (d) => getWeekOfYear(d, 0),
@@ -1693,6 +1697,15 @@ class LiquidDate {
     }
     getTime() {
         return this.displayDate.getTime();
+    }
+    /**
+     * The underlying UTC timestamp in milliseconds, unaffected by the display
+     * timezone. Use this (not `getTime()`) for timezone-invariant values like
+     * `%s`: `getTime()` reads `displayDate`, which is deliberately shifted by
+     * the display timezone offset so wall-clock getters can delegate to Date.
+     */
+    dateValue() {
+        return this.date.getTime();
     }
     getMilliseconds() {
         return this.displayDate.getMilliseconds();
@@ -1840,7 +1853,7 @@ class TagToken extends DelimitedToken {
         const { trimTagLeft, trimTagRight, tagDelimiterLeft, tagDelimiterRight } = options;
         const [valueBegin, valueEnd] = [begin + tagDelimiterLeft.length, end - tagDelimiterRight.length];
         super(exports.Yp.Tag, [valueBegin, valueEnd], input, begin, end, trimTagLeft, trimTagRight, file);
-        this.tokenizer = new Tokenizer(input, options.operators, file, this.contentRange);
+        this.tokenizer = new Tokenizer(input, options.operators, file, this.contentRange, options.groupedExpressions);
         this.name = this.tokenizer.readTagName();
         this.tokenizer.assert(this.name, `illegal tag syntax, tag name expected`);
         this.tokenizer.skipBlank();
@@ -2053,7 +2066,7 @@ class RangeToken extends Token {
 class LiquidTagToken extends DelimitedToken {
     constructor(input, begin, end, options, file) {
         super(exports.Yp.Tag, [begin, end], input, begin, end, false, false, file);
-        this.tokenizer = new Tokenizer(input, options.operators, file, this.contentRange);
+        this.tokenizer = new Tokenizer(input, options.operators, file, this.contentRange, options.groupedExpressions);
         this.name = this.tokenizer.readTagName();
         this.tokenizer.assert(this.name, 'illegal liquid tag syntax');
         this.tokenizer.skipBlank();
@@ -2127,6 +2140,33 @@ class Render {
     }
 }
 
+function isKeyValuePair(arr) {
+    return isArray(arr);
+}
+
+class Filter {
+    constructor(token, options, liquid) {
+        this.token = token;
+        this.name = token.name;
+        this.handler = isFunction(options)
+            ? options
+            : (isFunction(options?.handler) ? options.handler : identify);
+        this.raw = !isFunction(options) && !!options?.raw;
+        this.args = token.args;
+        this.liquid = liquid;
+    }
+    *render(value, context) {
+        const argv = [];
+        for (const arg of this.args) {
+            if (isKeyValuePair(arg))
+                argv.push([arg[0], yield evalToken(arg[1], context)]);
+            else
+                argv.push(yield evalToken(arg, context));
+        }
+        return yield this.handler.apply({ context, token: this.token, liquid: this.liquid }, [value, ...argv]);
+    }
+}
+
 class Expression {
     constructor(tokens) {
         this.postfix = [...toPostfix(tokens)];
@@ -2166,6 +2206,20 @@ function* evalToken(token, ctx, lenient = false) {
         return yield evalPropertyAccessToken(token, ctx, lenient);
     if (isRangeToken(token))
         return yield evalRangeToken(token, ctx);
+    if (isFilteredValueToken(token))
+        return yield evalFilteredValueToken(token, ctx, lenient);
+}
+function* evalFilteredValueToken(token, ctx, lenient) {
+    assert(ctx.liquid, 'FilteredValueToken evaluation requires liquid instance in context');
+    lenient = lenient || (ctx.opts.lenientIf && token.filters.length > 0 && token.filters[0].name === 'default');
+    let val = yield token.initial.evaluate(ctx, lenient);
+    for (const filterToken of token.filters) {
+        const filterImpl = ctx.liquid.filters[filterToken.name];
+        assert(filterImpl || !ctx.liquid.options.strictFilters, () => `undefined filter: ${filterToken.name}`);
+        const filter = new Filter(filterToken, filterImpl, ctx.liquid);
+        val = yield filter.render(val, ctx);
+    }
+    return val;
 }
 function* evalPropertyAccessToken(token, ctx, lenient) {
     const props = [];
@@ -2428,6 +2482,20 @@ var fs = /*#__PURE__*/Object.freeze({
   sep: path.sep
 });
 
+function chargeJsonReplacerValue(memoryLimit, val) {
+    if (typeof val === 'string') {
+        memoryLimit.use(val.length);
+    }
+    else if (val === null || typeof val === 'number' || typeof val === 'boolean') {
+        memoryLimit.use(JSON.stringify(val).length);
+    }
+    else if (Array.isArray(val)) {
+        memoryLimit.use(val.length + 1);
+    }
+    else if (typeof val === 'object') {
+        memoryLimit.use(2);
+    }
+}
 function defaultFilter(value, defaultValue, ...args) {
     value = toValue(value);
     if (isArray(value) || isString(value))
@@ -2437,19 +2505,29 @@ function defaultFilter(value, defaultValue, ...args) {
     return isFalsy(value, this.context) ? defaultValue : value;
 }
 function json(value, space = 0) {
-    return JSON.stringify(value, null, space);
+    const memoryLimit = this.context.memoryLimit;
+    return JSON.stringify(value, (_key, val) => {
+        chargeJsonReplacerValue(memoryLimit, val);
+        return val;
+    }, space);
 }
 function inspect(value, space = 0) {
+    const memoryLimit = this.context.memoryLimit;
     const ancestors = [];
     return JSON.stringify(value, function (_key, value) {
-        if (typeof value !== 'object' || value === null)
+        if (typeof value !== 'object' || value === null) {
+            chargeJsonReplacerValue(memoryLimit, value);
             return value;
+        }
         // `this` is the object that value is contained in, i.e., its direct parent.
         while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this)
             ancestors.pop();
-        if (ancestors.includes(value))
+        if (ancestors.includes(value)) {
+            memoryLimit.use('[Circular]'.length);
             return '[Circular]';
+        }
         ancestors.push(value);
+        chargeJsonReplacerValue(memoryLimit, value);
         return value;
     }, space);
 }
@@ -2617,6 +2695,7 @@ const defaultOptions = {
     globals: {},
     keepOutputType: false,
     operators: defaultOperators,
+    groupedExpressions: false,
     memoryLimit: Infinity,
     parseLimit: Infinity,
     renderLimit: Infinity
@@ -2712,7 +2791,7 @@ function trimRight(token, greedy) {
 }
 
 class Tokenizer {
-    constructor(input, operators = defaultOptions.operators, file, range) {
+    constructor(input, operators = defaultOptions.operators, file, range, groupedExpressions = false) {
         this.input = input;
         this.file = file;
         this.rawBeginAt = -1;
@@ -2720,6 +2799,7 @@ class Tokenizer {
         this.N = range ? range[1] : input.length;
         this.opTrie = createTrie(operators);
         this.literalTrie = createTrie(literalValues);
+        this.groupedExpressions = groupedExpressions;
     }
     readExpression() {
         return new Expression(this.readExpressionTokens());
@@ -2781,6 +2861,8 @@ class Tokenizer {
         this.skipBlank();
         if (this.end())
             return null;
+        if (this.peek() === ')')
+            return null;
         this.assert(this.read() === '|', `expected "|" before filter`);
         const name = this.readIdentifier();
         if (!name.size()) {
@@ -2795,10 +2877,10 @@ class Tokenizer {
                 const arg = this.readFilterArg();
                 arg && args.push(arg);
                 this.skipBlank();
-                this.assert(this.end() || this.peek() === ',' || this.peek() === '|', () => `unexpected character ${this.snapshot()}`);
+                this.assert(this.end() || this.peek() === ',' || this.peek() === '|' || this.peek() === ')', () => `unexpected character ${this.snapshot()}`);
             } while (this.peek() === ',');
         }
-        else if (this.peek() === '|' || this.end()) ;
+        else if (this.peek() === '|' || this.peek() === ')' || this.end()) ;
         else {
             throw this.error('expected ":" after filter name');
         }
@@ -3004,7 +3086,10 @@ class Tokenizer {
     readValue() {
         this.skipBlank();
         const begin = this.p;
-        const variable = this.readLiteral() || this.readQuoted() || this.readRange() || this.readNumber();
+        let variable = this.readLiteral() || this.readQuoted() || this.readNumber();
+        if (!variable && this.peek() === '(') {
+            variable = this.readGroupOrRange();
+        }
         const props = this.readProperties(!variable);
         if (!props.length)
             return variable;
@@ -3083,7 +3168,7 @@ class Tokenizer {
         this.p = end;
         return literal;
     }
-    readRange() {
+    readGroupOrRange() {
         this.skipBlank();
         const begin = this.p;
         if (this.peek() !== '(')
@@ -3091,11 +3176,22 @@ class Tokenizer {
         ++this.p;
         const lhs = this.readValueOrThrow();
         this.skipBlank();
-        this.assert(this.read() === '.' && this.read() === '.', 'invalid range syntax');
-        const rhs = this.readValueOrThrow();
-        this.skipBlank();
-        this.assert(this.read() === ')', 'invalid range syntax');
-        return new RangeToken(this.input, begin, this.p, lhs, rhs, this.file);
+        if (this.peek() === '.' && this.peek(1) === '.') {
+            this.p += 2;
+            const rhs = this.readValueOrThrow();
+            this.skipBlank();
+            this.assert(this.read() === ')', 'invalid range syntax');
+            return new RangeToken(this.input, begin, this.p, lhs, rhs, this.file);
+        }
+        if (this.groupedExpressions) {
+            const initial = new Expression([lhs, ...this.readExpressionTokens()]);
+            this.assert(initial.valid(), () => `invalid value expression: ${this.snapshot()}`);
+            const filters = this.readFilters();
+            this.skipBlank();
+            this.assert(this.read() === ')', 'unbalanced parentheses');
+            return new FilteredValueToken(initial, filters, this.input, begin, this.p, this.file);
+        }
+        throw this.error('invalid range syntax');
     }
     readValueOrThrow() {
         const value = this.readValue();
@@ -3249,33 +3345,6 @@ function createTagClass(options) {
     };
 }
 
-function isKeyValuePair(arr) {
-    return isArray(arr);
-}
-
-class Filter {
-    constructor(token, options, liquid) {
-        this.token = token;
-        this.name = token.name;
-        this.handler = isFunction(options)
-            ? options
-            : (isFunction(options?.handler) ? options.handler : identify);
-        this.raw = !isFunction(options) && !!options?.raw;
-        this.args = token.args;
-        this.liquid = liquid;
-    }
-    *render(value, context) {
-        const argv = [];
-        for (const arg of this.args) {
-            if (isKeyValuePair(arg))
-                argv.push([arg[0], yield evalToken(arg[1], context)]);
-            else
-                argv.push(yield evalToken(arg, context));
-        }
-        return yield this.handler.apply({ context, token: this.token, liquid: this.liquid }, [value, ...argv]);
-    }
-}
-
 class Value {
     /**
      * @param str the value to be valuated, eg.: "foobar" | truncate: 3
@@ -3283,7 +3352,7 @@ class Value {
     constructor(input, liquid) {
         this.filters = [];
         const token = typeof input === 'string'
-            ? new Tokenizer(input, liquid.options.operators).readFilteredValue()
+            ? new Tokenizer(input, liquid.options.operators, undefined, undefined, liquid.options.groupedExpressions).readFilteredValue()
             : input;
         this.initial = token.initial;
         this.filters = token.filters.map(token => new Filter(token, this.getFilter(liquid, token.name), liquid));
@@ -3306,7 +3375,7 @@ class Value {
 class Output extends TemplateImpl {
     constructor(token, liquid) {
         super(token);
-        const tokenizer = new Tokenizer(token.input, liquid.options.operators, token.file, token.contentRange);
+        const tokenizer = new Tokenizer(token.input, liquid.options.operators, token.file, token.contentRange, liquid.options.groupedExpressions);
         this.value = new Value(tokenizer.readFilteredValue(), liquid);
         const filters = this.value.filters;
         const outputEscape = liquid.options.outputEscape;
@@ -3591,8 +3660,29 @@ function* extractValueTokenVariables(token) {
         yield* extractValueTokenVariables(token.lhs);
         yield* extractValueTokenVariables(token.rhs);
     }
+    else if (isFilteredValueToken(token)) {
+        yield* extractGroupedExpressionTokenVariables(token);
+    }
     else if (isPropertyAccessToken(token)) {
         yield extractPropertyAccessVariable(token);
+    }
+}
+function* extractGroupedExpressionTokenVariables(token) {
+    if (!isFilteredValueToken(token))
+        return;
+    for (const t of token.initial.postfix) {
+        if (isValueToken(t))
+            yield* extractValueTokenVariables(t);
+    }
+    for (const filter of token.filters) {
+        for (const arg of filter.args) {
+            if (isKeyValuePair(arg) && arg[1]) {
+                yield* extractValueTokenVariables(arg[1]);
+            }
+            else if (isValueToken(arg)) {
+                yield* extractValueTokenVariables(arg);
+            }
+        }
     }
 }
 function extractPropertyAccessVariable(token) {
@@ -3743,7 +3833,7 @@ class Parser {
     parse(html, filepath) {
         html = String(html);
         this.parseLimit.use(html.length);
-        const tokenizer = new Tokenizer(html, this.liquid.options.operators, filepath);
+        const tokenizer = new Tokenizer(html, this.liquid.options.operators, filepath, undefined, this.liquid.options.groupedExpressions);
         const tokens = tokenizer.readTopLevelTokens(this.liquid.options);
         return this.parseTokens(tokens);
     }
@@ -3827,6 +3917,7 @@ class Parser {
     TokenKind[TokenKind["Quoted"] = 1024] = "Quoted";
     TokenKind[TokenKind["Operator"] = 2048] = "Operator";
     TokenKind[TokenKind["FilteredValue"] = 4096] = "FilteredValue";
+    TokenKind[TokenKind["GroupedExpression"] = 8192] = "GroupedExpression";
     TokenKind[TokenKind["Delimited"] = 12] = "Delimited";
 })(exports.Yp || (exports.Yp = {}));
 
@@ -3863,9 +3954,12 @@ function isWordToken(val) {
 function isRangeToken(val) {
     return getKind(val) === exports.Yp.Range;
 }
+function isFilteredValueToken(val) {
+    return getKind(val) === exports.Yp.FilteredValue;
+}
 function isValueToken(val) {
-    // valueTokenBitMask = TokenKind.Number | TokenKind.Literal | TokenKind.Quoted | TokenKind.PropertyAccess | TokenKind.Range
-    return (getKind(val) & 1667) > 0;
+    // valueTokenBitMask = TokenKind.Number | TokenKind.Literal | TokenKind.Quoted | TokenKind.PropertyAccess | TokenKind.Range | TokenKind.FilteredValue
+    return (getKind(val) & 5763) > 0;
 }
 function getKind(val) {
     return val ? val.kind : -1;
@@ -3884,6 +3978,7 @@ var typeGuards = /*#__PURE__*/Object.freeze({
   isPropertyAccessToken: isPropertyAccessToken,
   isWordToken: isWordToken,
   isRangeToken: isRangeToken,
+  isFilteredValueToken: isFilteredValueToken,
   isValueToken: isValueToken
 });
 
@@ -3921,7 +4016,7 @@ function createScope(from) {
 }
 
 class Context {
-    constructor(env = {}, opts = defaultOptions, renderOptions = {}, { memoryLimit, renderLimit } = {}) {
+    constructor(env = {}, opts = defaultOptions, renderOptions = {}, { memoryLimit, renderLimit, liquid } = {}) {
         /**
          * insert a Context-level empty scope,
          * for tags like `{% capture %}` `{% assign %}` to operate
@@ -3938,6 +4033,7 @@ class Context {
         this.ownPropertyOnly = renderOptions.ownPropertyOnly ?? opts.ownPropertyOnly;
         this.memoryLimit = memoryLimit ?? new Limiter('memory alloc', renderOptions.memoryLimit ?? opts.memoryLimit);
         this.renderLimit = renderLimit ?? new Limiter('template render', getPerformance().now() + (renderOptions.renderLimit ?? opts.renderLimit));
+        this.liquid = liquid;
     }
     getRegister(key, defaultValue = undefined) {
         return (this.registers[key] = this.registers[key] || defaultValue);
@@ -4002,7 +4098,8 @@ class Context {
             ownPropertyOnly: this.ownPropertyOnly
         }, {
             renderLimit: this.renderLimit,
-            memoryLimit: this.memoryLimit
+            memoryLimit: this.memoryLimit,
+            liquid: this.liquid
         });
     }
     findScope(key) {
@@ -4020,8 +4117,8 @@ class Context {
         key = toValue(key);
         if (isNil(obj))
             return obj;
-        if (isArray(obj) && key < 0)
-            return obj[obj.length + +key];
+        if (isArray(obj) && isNumber(key))
+            return readArrayElement(obj, key, this.ownPropertyOnly);
         const value = readJSProperty(obj, key, this.ownPropertyOnly);
         if (value === undefined && obj instanceof Drop)
             return obj.liquidMethodMissing(key, this);
@@ -4030,9 +4127,9 @@ class Context {
         if (key === 'size')
             return readSize(obj);
         else if (key === 'first')
-            return readFirst(obj);
+            return readFirst(obj, this.ownPropertyOnly);
         else if (key === 'last')
-            return readLast(obj);
+            return readLast(obj, this.ownPropertyOnly);
         return value;
     }
 }
@@ -4041,15 +4138,15 @@ function readJSProperty(obj, key, ownPropertyOnly) {
         return undefined;
     return obj[key];
 }
-function readFirst(obj) {
+function readFirst(obj, ownPropertyOnly) {
     if (isArray(obj))
-        return obj[0];
-    return obj['first'];
+        return readArrayElement(obj, 0, ownPropertyOnly);
+    return readJSProperty(obj, 'first', ownPropertyOnly);
 }
-function readLast(obj) {
+function readLast(obj, ownPropertyOnly) {
     if (isArray(obj))
-        return obj[obj.length - 1];
-    return obj['last'];
+        return readArrayElement(obj, -1, ownPropertyOnly);
+    return readJSProperty(obj, 'last', ownPropertyOnly);
 }
 function readSize(obj) {
     if (hasOwnProperty.call(obj, 'size') || obj['size'] !== undefined)
@@ -4076,7 +4173,7 @@ const divided_by = argumentsToNumber((dividend, divisor, integerArithmetic = fal
 const floor = argumentsToNumber(Math.floor);
 const minus = argumentsToNumber((v, arg) => v - arg);
 const plus = argumentsToNumber((lhs, rhs) => lhs + rhs);
-const modulo = argumentsToNumber((v, arg) => v % arg);
+const modulo = argumentsToNumber((v, arg) => ((v % arg) + arg) % arg);
 const times = argumentsToNumber((v, arg) => v * arg);
 function round(v, arg = 0) {
     v = toNumber(v);
@@ -4159,12 +4256,18 @@ var urlFilters = /*#__PURE__*/Object.freeze({
 const join = argumentsToValue(function (v, arg) {
     const array = toArray(v);
     const sep = isNil(arg) ? ' ' : stringify(arg);
-    const complexity = array.length * (1 + sep.length);
-    this.context.memoryLimit.use(complexity);
-    return array.join(sep);
+    let outputSize = sep.length * Math.max(array.length - 1, 0);
+    for (let i = 0; i < array.length; i++)
+        outputSize += String(array[i]).length;
+    this.context.memoryLimit.use(outputSize);
+    return Array.prototype.join.call(array, sep);
 });
-const last$1 = argumentsToValue((v) => isArrayLike(v) ? last(v) : '');
-const first = argumentsToValue((v) => isArrayLike(v) ? v[0] : '');
+const last = argumentsToValue(function (v) {
+    return isArrayLike(v) ? readArrayElement(v, -1, this.context.ownPropertyOnly) : '';
+});
+const first = argumentsToValue(function (v) {
+    return isArrayLike(v) ? readArrayElement(v, 0, this.context.ownPropertyOnly) : '';
+});
 const reverse = argumentsToValue(function (v) {
     const array = toArray(v);
     this.context.memoryLimit.use(array.length);
@@ -4210,13 +4313,13 @@ function* sum(arr, property) {
 function compact(arr) {
     const array = toArray(arr);
     this.context.memoryLimit.use(array.length);
-    return array.filter(x => !isNil(toValue(x)));
+    return Array.prototype.filter.call(array, x => !isNil(toValue(x)));
 }
 function concat(v, arg = []) {
     const lhs = toArray(v);
     const rhs = toArray(arg);
     this.context.memoryLimit.use(lhs.length + rhs.length);
-    return lhs.concat(rhs);
+    return Array.prototype.concat.call(lhs, rhs);
 }
 function push(v, arg) {
     return concat.call(this, v, [arg]);
@@ -4249,8 +4352,12 @@ function slice(v, begin, length = 1) {
     if (!isArray(v))
         v = stringify(v);
     begin = begin < 0 ? v.length + begin : begin;
+    if (begin < 0 || length < 0)
+        return isArray(v) ? [] : '';
     this.context.memoryLimit.use(length);
-    return v.slice(begin, begin + length);
+    return isArray(v)
+        ? Array.prototype.slice.call(v, begin, begin + length)
+        : String.prototype.slice.call(v, begin, begin + length);
 }
 function expectedMatcher(expected) {
     if (this.context.opts.jekyllWhere) {
@@ -4272,7 +4379,7 @@ function* filter(include, arr, property, expected) {
         values.push(yield evalToken(token, this.context.spawn(item)));
     }
     const matcher = expectedMatcher.call(this, expected);
-    return arr.filter((_, i) => matcher(values[i]) === include);
+    return Array.prototype.filter.call(arr, (_, i) => matcher(values[i]) === include);
 }
 function* filter_exp(include, arr, itemName, exp) {
     const filtered = [];
@@ -4394,7 +4501,7 @@ function sample(v, count = 1) {
 var arrayFilters = /*#__PURE__*/Object.freeze({
   __proto__: null,
   join: join,
-  last: last$1,
+  last: last,
   first: first,
   reverse: reverse,
   sort: sort,
@@ -4613,6 +4720,11 @@ function strip_newlines(v) {
     this.context.memoryLimit.use(str.length);
     return str.replace(/\r?\n/gm, '');
 }
+function squish(v) {
+    const str = stringify(v);
+    this.context.memoryLimit.use(str.length);
+    return str.replace(/\s+/g, ' ').trim();
+}
 function capitalize(str) {
     str = stringify(str);
     this.context.memoryLimit.use(str.length);
@@ -4691,7 +4803,10 @@ function number_of_words(input, mode) {
 }
 function array_to_sentence_string(array, connector = 'and') {
     connector = stringify(connector);
-    this.context.memoryLimit.use(array.length + connector.length);
+    let outputSize = connector.length + array.length * 2;
+    for (let i = 0; i < array.length; i++)
+        outputSize += stringify(array[i]).length;
+    this.context.memoryLimit.use(outputSize);
     switch (array.length) {
         case 0:
             return '';
@@ -4718,6 +4833,7 @@ var stringFilters = /*#__PURE__*/Object.freeze({
   split: split,
   strip: strip,
   strip_newlines: strip_newlines,
+  squish: squish,
   capitalize: capitalize,
   replace: replace,
   replace_first: replace_first,
@@ -5767,7 +5883,7 @@ class Liquid {
         return parser.parse(html, filepath);
     }
     _render(tpl, scope, renderOptions) {
-        const ctx = scope instanceof Context ? scope : new Context(scope, this.options, renderOptions);
+        const ctx = scope instanceof Context ? scope : new Context(scope, this.options, renderOptions, { liquid: this });
         return this.renderer.renderTemplates(tpl, ctx);
     }
     async render(tpl, scope, renderOptions) {
@@ -5777,7 +5893,7 @@ class Liquid {
         return toValueSync(this._render(tpl, scope, { ...renderOptions, sync: true }));
     }
     renderToNodeStream(tpl, scope, renderOptions = {}) {
-        const ctx = new Context(scope, this.options, renderOptions);
+        const ctx = new Context(scope, this.options, renderOptions, { liquid: this });
         return this.renderer.renderTemplatesToNodeStream(tpl, ctx);
     }
     _parseAndRender(html, scope, renderOptions) {
@@ -5821,7 +5937,7 @@ class Liquid {
     }
     _evalValue(str, scope) {
         const value = new Value(str, this);
-        const ctx = scope instanceof Context ? scope : new Context(scope, this.options);
+        const ctx = scope instanceof Context ? scope : new Context(scope, this.options, {}, { liquid: this });
         return value.value(ctx);
     }
     async evalValue(str, scope) {
@@ -5832,6 +5948,9 @@ class Liquid {
     }
     registerFilter(name, filter) {
         this.filters[name] = filter;
+    }
+    unregisterFilter(name) {
+        delete this.filters[name];
     }
     registerTag(name, tag) {
         this.tags[name] = isFunction(tag) ? tag : createTagClass(tag);
@@ -5928,7 +6047,7 @@ class Liquid {
 }
 
 /* istanbul ignore file */
-const version = '10.27.1';
+const version = '10.29.0';
 
 __webpack_unused_export__ = AssertionError;
 __webpack_unused_export__ = AssignTag;
@@ -9322,7 +9441,13 @@ function processHeader (request, key, val) {
       } else if (typeof val[i] === 'object') {
         throw new InvalidArgumentError(`invalid ${key} header`)
       } else {
-        arr.push(`${val[i]}`)
+        // Coerce primitives (and reject unsafe coercions such as functions
+        // with a crafted toString/Symbol.toPrimitive).
+        const str = `${val[i]}`
+        if (!isValidHeaderValue(str)) {
+          throw new InvalidArgumentError(`invalid ${key} header`)
+        }
+        arr.push(str)
       }
     }
     val = arr
@@ -9333,7 +9458,12 @@ function processHeader (request, key, val) {
   } else if (val === null) {
     val = ''
   } else {
+    // Coerce primitives (and reject unsafe coercions such as functions
+    // with a crafted toString/Symbol.toPrimitive).
     val = `${val}`
+    if (!isValidHeaderValue(val)) {
+      throw new InvalidArgumentError(`invalid ${key} header`)
+    }
   }
 
   if (headerName === 'host') {
@@ -10705,6 +10835,7 @@ const {
   RequestContentLengthMismatchError,
   ResponseContentLengthMismatchError,
   RequestAbortedError,
+  InvalidArgumentError,
   HeadersTimeoutError,
   HeadersOverflowError,
   SocketError,
@@ -11688,8 +11819,16 @@ function writeH1 (client, request) {
     }
     body = bodyStream.stream
     contentLength = bodyStream.length
-  } else if (util.isBlobLike(body) && request.contentType == null && body.type) {
-    headers.push('content-type', body.type)
+  } else if (util.isBlobLike(body) && request.contentType == null) {
+    const contentType = body.type
+    if (contentType) {
+      const contentTypeValue = `${contentType}`
+      if (!util.isValidHeaderValue(contentTypeValue)) {
+        util.errorRequest(client, request, new InvalidArgumentError('invalid content-type header'))
+        return false
+      }
+      headers.push('content-type', contentTypeValue)
+    }
   }
 
   if (body && typeof body.read === 'function') {
@@ -15162,6 +15301,28 @@ function calculateRetryAfterHeader (retryAfter) {
   return new Date(retryAfter).getTime() - current
 }
 
+function validatePartialResponseContentLength (headers, range, statusCode, retryCount) {
+  const contentLength = headers['content-length']
+  if (contentLength == null) {
+    return null
+  }
+
+  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) {
+    return null
+  }
+
+  const length = Number(contentLength)
+  const expectedLength = range.end - range.start + 1
+  if (!Number.isFinite(length) || length !== expectedLength) {
+    return new RequestRetryError('Content-Length mismatch', statusCode, {
+      headers,
+      data: { count: retryCount }
+    })
+  }
+
+  return null
+}
+
 class RetryHandler {
   constructor (opts, handlers) {
     const { retryOptions, ...dispatchOpts } = opts
@@ -15376,6 +15537,12 @@ class RetryHandler {
         return false
       }
 
+      const contentLengthError = validatePartialResponseContentLength(headers, contentRange, statusCode, this.retryCount)
+      if (contentLengthError != null) {
+        this.abort(contentLengthError)
+        return false
+      }
+
       const { start, size, end = size - 1 } = contentRange
 
       assert(this.start === start, 'content-range mismatch')
@@ -15397,6 +15564,12 @@ class RetryHandler {
             resume,
             statusMessage
           )
+        }
+
+        const contentLengthError = validatePartialResponseContentLength(headers, range, statusCode, this.retryCount)
+        if (contentLengthError != null) {
+          this.abort(contentLengthError)
+          return false
         }
 
         const { start, size, end = size - 1 } = range
@@ -19643,7 +19816,7 @@ function validateCookiePath (path) {
 
     if (
       code < 0x20 || // exclude CTLs (0-31)
-      code === 0x7F || // DEL
+      code > 0x7E || // exclude DEL and non-ascii
       code === 0x3B // ;
     ) {
       throw new Error('Invalid cookie path')
@@ -19652,16 +19825,80 @@ function validateCookiePath (path) {
 }
 
 /**
- * I have no idea why these values aren't allowed to be honest,
- * but Deno tests these. - Khafra
+ * <let-dig> ::= <letter> | <digit>
+ *
+ * <letter> ::= any one of the 52 alphabetic characters A through Z in
+ * upper case and a through z in lower case
+ *
+ * <digit> ::= any one of the ten digits 0 through 9r
+ *
+ * @see https://www.rfc-editor.org/rfc/rfc1034#section-3.5
+ * @param {number} code
+ */
+function isLetterOrDigit (code) {
+  return (
+    (code >= 0x30 && code <= 0x39) || // 0-9
+    (code >= 0x41 && code <= 0x5A) || // A-Z
+    (code >= 0x61 && code <= 0x7A) // a-z
+  )
+}
+
+/**
+ * Validates a cookie domain against the "preferred name syntax".
+ *
+ * <domain>      ::= <subdomain> | " "
+ * <subdomain>   ::= <label> | <subdomain> "." <label>
+ * <label>       ::= <let-dig> [ [ <ldh-str> ] <let-dig> ]
+ * <ldh-str>     ::= <let-dig-hyp> | <let-dig-hyp> <ldh-str>
+ * <let-dig-hyp> ::= <let-dig> | "-"
+ *
+ * @see https://www.rfc-editor.org/rfc/rfc1034#section-3.5
+ * @see https://www.rfc-editor.org/rfc/rfc1123#section-2.1
+ * @see https://www.rfc-editor.org/rfc/rfc1035#section-2.3.4
  * @param {string} domain
  */
 function validateCookieDomain (domain) {
-  if (
-    domain.startsWith('-') ||
-    domain.endsWith('.') ||
-    domain.endsWith('-')
-  ) {
+  // <domain> ::= <subdomain> | " "
+  if (domain === ' ') {
+    return
+  }
+
+  if (domain.length > 255) {
+    throw new Error('Invalid cookie domain')
+  }
+
+  let labelLength = 0
+
+  for (let i = 0; i < domain.length; ++i) {
+    const code = domain.charCodeAt(i)
+
+    if (code === 0x2E) {
+      if (labelLength === 0) {
+        throw new Error('Invalid cookie domain')
+      }
+
+      if (domain.charCodeAt(i - 1) === 0x2D) { // "-"
+        throw new Error('Invalid cookie domain')
+      }
+
+      labelLength = 0
+      continue
+    }
+
+    if (labelLength === 0 && !isLetterOrDigit(code)) {
+      throw new Error('Invalid cookie domain')
+    }
+
+    if (!isLetterOrDigit(code) && code !== 0x2D) { // "-"
+      throw new Error('Invalid cookie domain')
+    }
+
+    if (++labelLength > 63) {
+      throw new Error('Invalid cookie domain')
+    }
+  }
+
+  if (labelLength === 0 || domain.charCodeAt(domain.length - 1) === 0x2D) { // "-"
     throw new Error('Invalid cookie domain')
   }
 }
@@ -19804,7 +20041,13 @@ function stringify (cookie) {
 
     const [key, ...value] = part.split('=')
 
-    out.push(`${key.trim()}=${value.join('=')}`)
+    const trimmedKey = key.trim()
+    const joinedValue = value.join('=')
+
+    validateCookieName(trimmedKey)
+    validateCookieValue(joinedValue)
+
+    out.push(`${trimmedKey}=${joinedValue}`)
   }
 
   return out.join('; ')
@@ -41651,6 +41894,9 @@ function getOctokit(token, options, ...additionalPlugins) {
 /******/ }
 /******/ 
 /************************************************************************/
+/******/ /* webpack/runtime/asset-relocator-loader */
+/******/ if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = decodeURIComponent(new URL('.', import.meta.url).pathname).slice(import.meta.url.match(/^file:\/\/\/\w:/) ? 1 : 0, -1) + "/";
+/******/ 
 /******/ /* webpack/runtime/async module */
 /******/ (() => {
 /******/ 	var webpackQueues = typeof Symbol === "function" ? Symbol("webpack queues") : "__webpack_queues__";
@@ -41736,10 +41982,6 @@ function getOctokit(token, options, ...additionalPlugins) {
 /******/ (() => {
 /******/ 	__nccwpck_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
 /******/ })();
-/******/ 
-/******/ /* webpack/runtime/compat */
-/******/ 
-/******/ if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = new URL('.', import.meta.url).pathname.slice(import.meta.url.match(/^file:\/\/\/\w:/) ? 1 : 0, -1) + "/";
 /******/ 
 /************************************************************************/
 /******/ 
